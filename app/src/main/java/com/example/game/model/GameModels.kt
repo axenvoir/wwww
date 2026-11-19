@@ -272,7 +272,8 @@ data class MatchConfig(
     val cameraZoom: Int = 5,
     val cameraHeight: Int = 5,
     val isLanMultiplayer: Boolean = false,
-    val localControlledSide: TeamSide = TeamSide.HOME
+    val localControlledSide: TeamSide = TeamSide.HOME,
+    val graphicsPipelineMode: GraphicsPipelineMode = GraphicsPipelineMode.CLASSIC,
 ) {
     val homeTeam: ClubTeam get() = ClubCatalog.findById(homeTeamId)
     val awayTeam: ClubTeam get() = ClubCatalog.findById(awayTeamId)
