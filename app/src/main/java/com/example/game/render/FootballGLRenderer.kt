@@ -40,6 +40,9 @@ class FootballGLRenderer(
 private val fallbackController = GraphicsFallbackController()
 private var pitchPbrProgram = 0
 private var skinnedPbrProgram = 0
+    private var ballPbrProgram = 0 
+    private var pbrFpsLastNanos = 0L
+    private var pbrEmaFrameMs = 16.6f
 private var activePipelineMode = GraphicsPipelineMode.CLASSIC
     // Shader programs
     private var skinnedProgram = 0
@@ -198,6 +201,10 @@ private var activePipelineMode = GraphicsPipelineMode.CLASSIC
         if (pitchPbrProgram == 0 || skinnedPbrProgram == 0) {
             fallbackController.reportShaderFailure("PBR shader compile/link failed")
         }
+        ballPbrProgram = SafeShaderCompiler.buildProgramOrZero(StadiumShaders.BALL_VERTEX, RealisticPbrShaders.BALL_PBR_FRAGMENT)
+        if (ballPbrProgram == 0) {
+            fallbackController.reportShaderFailure("Ball PBR shader compile/link failed")
+        }
 
         resolveUniformLocations()
 
@@ -339,7 +346,14 @@ private var activePipelineMode = GraphicsPipelineMode.CLASSIC
         val stadium = snap.config.stadium
         val quality = snap.config.graphicsQuality
         activePipelineMode = fallbackController.effectiveMode(snap.config.graphicsPipelineMode)
-
+val pbrNow = System.nanoTime()
+        if (pbrFpsLastNanos != 0L) {
+            val dtMs = ((pbrNow - pbrFpsLastNanos) / 1_000_000f).coerceIn(1f, 100f)
+            pbrEmaFrameMs = pbrEmaFrameMs * 0.92f + dtMs * 0.08f
+            val currentFps = (1000f / pbrEmaFrameMs.coerceAtLeast(1f)).toInt().coerceIn(1, 120)
+            fallbackController.observeFrame(currentFps, activePipelineMode)
+        }
+        pbrFpsLastNanos = pbrNow
         ensureTeamAssetsLoaded(snap.config.homeTeam, snap.config.awayTeam)
 
         GLES30.glClearColor(stadium.skyR, stadium.skyG, stadium.skyB, 1.0f)
@@ -706,14 +720,17 @@ val usePbr = activePipelineMode == GraphicsPipelineMode.REALISTIC_PBR && skinned
         }
     }
 
-    private fun drawMatchBall(snap: RenderWorldSnapshot, stadium: StadiumPreset, quality: GraphicsQuality) {
-        GLES30.glUseProgram(ballProgram)
-        GLES30.glUniform3f(uBallSunDir, stadium.sunX, stadium.sunY, stadium.sunZ)
-        GLES30.glUniform3f(uBallSunCol, stadium.sunR, stadium.sunG, stadium.sunB)
-        GLES30.glUniform1f(uBallAmb, stadium.ambientStrength)
-        GLES30.glUniform1f(uBallFlood, stadium.floodlightIntensity)
-        GLES30.glUniform3f(uBallCamPos, camPosX, camPosY, camPosZ)
-        GLES30.glUniform3f(uBallSky, stadium.skyR, stadium.skyG, stadium.skyB)
+    private fun drawMatchBall(snap: RenderWorldSnapshot, stadium: StadiumPreset, quality: GraphicsQuality)  { 
+        val usePbr = activePipelineMode == GraphicsPipelineMode.REALISTIC_PBR && ballPbrProgram != 0
+        val prog = if (usePbr) ballPbrProgram else ballProgram
+        fun u(name: String, classic: Int) = if (usePbr) GLES30.glGetUniformLocation(prog, name) else classic
+        GLES30.glUseProgram(prog)
+        GLES30.glUniform3f(u("uSunDir", uBallSunDir), stadium.sunX, stadium.sunY, stadium.sunZ)
+GLES30.glUniform3f(u("uSunColor", uBallSunCol), stadium.sunR, stadium.sunG, stadium.sunB)
+GLES30.glUniform1f(u("uAmbient", uBallAmb), stadium.ambientStrength)
+GLES30.glUniform1f(u("uFloodlight", uBallFlood), stadium.floodlightIntensity)
+GLES30.glUniform3f(u("uCameraPos", uBallCampos), camPosX, camPosY, camPosZ)
+GLES30.glUniform3f(u("uSkyColor", uBallSky), stadium.skyR, stadium.skyG, stadium.skyB)
 
         Matrix.setIdentityM(modelMatrix, 0)
         Matrix.translateM(modelMatrix, 0, snap.ballX, snap.ballY, snap.ballZ)
@@ -724,9 +741,8 @@ val usePbr = activePipelineMode == GraphicsPipelineMode.REALISTIC_PBR && skinned
         Matrix.scaleM(modelMatrix, 0, r, r, r)
         Matrix.multiplyMM(mvpMatrix, 0, vpMatrix, 0, modelMatrix, 0)
 
-        GLES30.glUniformMatrix4fv(uBallMvp, 1, false, mvpMatrix, 0)
-        GLES30.glUniformMatrix4fv(uBallModel, 1, false, modelMatrix, 0)
-
+GLES30.glUniformMatrix4fv(u("uMvpMatrix", uBallMvp), 1, false, mvpMatrix, 0)
+        GLES30.glUniformMatrix4fv(u("uModelMatrix", uBallModel), 1, false, modelMatrix, 0)
         if (quality == GraphicsQuality.LOW) ballMeshLow.draw() else ballMeshHigh.draw()
     }
 
