@@ -1,7 +1,7 @@
 package com.example.game.render
 
 object RealisticPbrShaders {
-const val PITCH_PBR_FRAGMENT: String = """#version 300 es
+val PITCH_PBR_FRAGMENT: String = """#version 300 es
 precision highp float;
 
 in vec3 vWorldPos;
@@ -175,7 +175,7 @@ fragColor = vec4(color, 1.0);
 }
 """.trimIndent()
 
-const val SKINNED_PLAYER_PBR_FRAGMENT: String = """#version 300 es
+val SKINNED_PLAYER_PBR_FRAGMENT: String = """#version 300 es
 precision highp float;
 
 in vec3 vWorldPos;
