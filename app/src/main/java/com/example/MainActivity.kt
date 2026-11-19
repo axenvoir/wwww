@@ -103,6 +103,7 @@ fun MatchdayLanApp(viewModel: MatchdayViewModel = viewModel()) {
         AppScreen.SETTINGS -> SettingsScreen(
             settings = settings,
             onUpdateGraphics = { viewModel.updateGraphicsQuality(it) },
+                    onUpdateGraphicsPipelineMode = { viewModel.updateGraphicsPipelineMode(it) },
             onUpdateCamera = { viewModel.updateCameraPreset(it) },
             onUpdateCameraZoom = { viewModel.updateCameraZoom(it) },
             onUpdateCameraHeight = { viewModel.updateCameraHeight(it) },
