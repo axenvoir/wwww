@@ -38,7 +38,8 @@ class FootballGLRenderer(
 ) : GLSurfaceView.Renderer {
 
 private val fallbackController = GraphicsFallbackController()
-private var pitchPbrProgram = 0
+private val postProcessPass = PostProcessPass()
+    private var pitchPbrProgram = 0
 private var skinnedPbrProgram = 0
     private var ballPbrProgram = 0 
     private var pbrFpsLastNanos = 0L
@@ -184,6 +185,7 @@ private var activePipelineMode = GraphicsPipelineMode.CLASSIC
 
     override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
         GLES30.glEnable(GLES30.GL_DEPTH_TEST)
+        postProcessPass.init()
         GLES30.glEnable(GLES30.GL_BLEND)
         GLES30.glBlendFunc(GLES30.GL_SRC_ALPHA, GLES30.GL_ONE_MINUS_SRC_ALPHA)
         GLES30.glEnable(GLES30.GL_CULL_FACE)
@@ -330,6 +332,7 @@ private var activePipelineMode = GraphicsPipelineMode.CLASSIC
 
     override fun onSurfaceChanged(gl: GL10?, width: Int, height: Int) {
         GLES30.glViewport(0, 0, width, height)
+        postProcessPass.resize(width, height)
         aspectRatio = width.toFloat() / height.coerceAtLeast(1).toFloat()
     }
 
@@ -357,6 +360,7 @@ val pbrNow = System.nanoTime()
         ensureTeamAssetsLoaded(snap.config.homeTeam, snap.config.awayTeam)
 
         GLES30.glClearColor(stadium.skyR, stadium.skyG, stadium.skyB, 1.0f)
+        val usePostFx = activePipelineMode == GraphicsPipelineMode.REALISTIC_PBR && quality == GraphicsQuality.HIGH && postProcessPass.beginSceneCapture()
         GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT or GLES30.GL_DEPTH_BUFFER_BIT)
 
         updateBroadcastCamera(snap, dt)
@@ -400,6 +404,10 @@ val pbrNow = System.nanoTime()
         // 6. Scrolling Textured LED Advertising Boards & Transparent Woven Goal Nets (drawn after opaques)
         drawLedBoardsAndGoalNets(snap, quality)
 
+        if (usePostFx) {
+            val bloom = if (stadium.floodlightIntensity > 0.45f) 0.34f else 0.16f
+            postProcessPass.endAndComposite(bloomStrength = bloom, vignetteStrength = 0.22f)
+        }
         lastRenderNanos = System.nanoTime() - renderStart
     }
 
