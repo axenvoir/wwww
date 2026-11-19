@@ -22,4 +22,13 @@ class RealisticPbrShadersTest {
         assertTrue(src.contains("uFloodlight"))
         assertTrue(src.contains("acesToneMap"))
     }
+
+@Test
+fun ballPbrShaderContainsRequiredUniformsAndAces() {
+val src = RealisticPbrShaders.BALL_PBR_FRAGMENT
+assertTrue(src.contains("#version 300 es"))
+assertTrue(src.contains("uFloodlight"))
+assertTrue(src.contains("uCameraPos"))
+assertTrue(src.contains("acesToneMap"))
+}
 }
