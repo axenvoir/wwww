@@ -1,0 +1,6 @@
+{
+  "name": "Matchday LAN",
+  "description": "Original 3D 11v11 Android football game with offline local Wi-Fi multiplayer.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
