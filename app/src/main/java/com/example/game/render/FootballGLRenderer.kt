@@ -36,7 +36,10 @@ class FootballGLRenderer(
     private val snapshotProvider: () -> RenderWorldSnapshot,
     private val onFrameTick: (dt: Float, lastRenderNanos: Long) -> Unit
 ) : GLSurfaceView.Renderer {
-
+    private val resolutionScaler = DynamicResolutionScaler()
+    private var surfaceWidthPx = 1
+    private var surfaceHeightPx = 1
+    
 private val fallbackController = GraphicsFallbackController()
 private val postProcessPass = PostProcessPass()
     private var pitchPbrProgram = 0
@@ -332,7 +335,9 @@ private var activePipelineMode = GraphicsPipelineMode.CLASSIC
 
     override fun onSurfaceChanged(gl: GL10?, width: Int, height: Int) {
         GLES30.glViewport(0, 0, width, height)
-        postProcessPass.resize(width, height)
+        surfaceWidthPx = width.coerceAtLeast(1)
+      surfaceHeightPx = height.coerceAtLeast(1)
+      postProcessPass.resize(surfaceWidthPx, surfaceHeightPx, resolutionScaler.scaledWidth(surfaceWidthPx), resolutionScaler.scaledHeight(surfaceHeightPx))
         aspectRatio = width.toFloat() / height.coerceAtLeast(1).toFloat()
     }
 
@@ -355,6 +360,11 @@ val pbrNow = System.nanoTime()
             pbrEmaFrameMs = pbrEmaFrameMs * 0.92f + dtMs * 0.08f
             val currentFps = (1000f / pbrEmaFrameMs.coerceAtLeast(1f)).toInt().coerceIn(1, 120)
             fallbackController.observeFrame(currentFps, activePipelineMode)
+            if (activePipelineMode == GraphicsPipelineMode.REALISTIC_PBR && quality == GraphicsQuality.HIGH) {
+                if (resolutionScaler.observeFrameMs(pbrEmaFrameMs)) {
+                    postProcessPass.resize(surfaceWidthPx, surfaceHeightPx, resolutionScaler.scaledWidth(surfaceWidthPx), resolutionScaler.scaledHeight(surfaceHeightPx))
+                }
+            }
         }
         pbrFpsLastNanos = pbrNow
         ensureTeamAssetsLoaded(snap.config.homeTeam, snap.config.awayTeam)

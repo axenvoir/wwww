@@ -90,7 +90,9 @@ class PostProcessPass {
     private var depthRboId: Int = 0
     private var width: Int = 0
     private var height: Int = 0
-
+    private var screenWidth: Int = 0
+    private var screenHeight: Int = 0
+    
     private var uSceneTexLoc: Int = -1
     private var uTexelSizeLoc: Int = -1
     private var uBloomStrengthLoc: Int = -1
@@ -148,20 +150,23 @@ class PostProcessPass {
         }
     }
 
-    fun resize(width: Int, height: Int) {
-        if (width <= 0 || height <= 0) {
-            isReady = false
-            return
+        fun resize(screenWidth: Int, screenHeight: Int, fboWidth: Int = screenWidth, fboHeight: Int = screenHeight) {
+            if (screenWidth <= 0 || screenHeight <= 0 || fboWidth <= 0 || fboHeight <= 0) {
+              isReady = false
+              return  
         }
-        if (this.width == width && this.height == height && isReady) {
-            return
-        }
-        this.width = width
-        this.height = height
-        if (programId != 0) {
-            createFramebuffer(width, height)
-        }
-    }
+            if (this.screenWidth == screenWidth && this.screenHeight == screenHeight && this.width == fboWidth && this.height == fboHeight && isReady) {
+                return
+            }
+            this.screenWidth = screenWidth
+            this.screenHeight = screenHeight
+            this.width = fboWidth
+            this.height = fboHeight
+            if (programId != 0) {
+                createFramebuffer(fboWidth, fboHeight)
+            } 
+            
+            }
 
     fun beginSceneCapture(): Boolean {
         if (!isReady || fboId == 0) {
@@ -173,6 +178,7 @@ class PostProcessPass {
                 GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, 0)
                 false
             } else {
+                GLES30.glViewport(0, 0, width, height)
                 true
             }
         } catch (_: Throwable) {
@@ -190,7 +196,8 @@ class PostProcessPass {
         }
         try {
             GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, 0)
-            GLES30.glDisable(GLES30.GL_DEPTH_TEST)
+           GLES30.glViewport(0, 0, screenWidth, screenHeight)
+          GLES30.glDisable(GLES30.GL_DEPTH_TEST)
             GLES30.glUseProgram(programId)
 
             GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
