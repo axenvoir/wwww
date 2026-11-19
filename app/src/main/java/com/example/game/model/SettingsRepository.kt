@@ -21,7 +21,8 @@ data class UserSettings(
     val difficulty: AiDifficulty = AiDifficulty.PROFESSIONAL,
     val lastManualIp: String = "192.168.43.1",
     val soundEnabled: Boolean = true,
-    val showPerfHud: Boolean = false
+    val showPerfHud: Boolean = false,
+    val graphicsPipelineMode: GraphicsPipelineMode = GraphicsPipelineMode.CLASSIC,
 )
 
 class SettingsRepository(private val context: Context) {
@@ -36,6 +37,7 @@ class SettingsRepository(private val context: Context) {
         val LAST_MANUAL_IP = stringPreferencesKey("last_manual_ip")
         val SOUND_ENABLED = booleanPreferencesKey("sound_enabled")
         val SHOW_PERF_HUD = booleanPreferencesKey("show_perf_hud")
+        val GRAPHICS_PIPELINE_MODE = stringPreferencesKey("graphics_pipeline_mode")
     }
 
     val settingsFlow: Flow<UserSettings> = context.settingsDataStore.data.map { prefs ->
@@ -53,7 +55,9 @@ class SettingsRepository(private val context: Context) {
                 ?: AiDifficulty.PROFESSIONAL,
             lastManualIp = prefs[Keys.LAST_MANUAL_IP] ?: "192.168.43.1",
             soundEnabled = prefs[Keys.SOUND_ENABLED] ?: true,
-            showPerfHud = prefs[Keys.SHOW_PERF_HUD] ?: false
+            showPerfHud = prefs[Keys.SHOW_PERF_HUD] ?: false,
+            graphicsPipelineMode = prefs[Keys.GRAPHICS_PIPELINE_MODE]?.let { runCatching { GraphicsPipelineMode.valueOf(it) }.getOrNull() }
+                ?: GraphicsPipelineMode.CLASSIC,
         )
     }
 
@@ -95,5 +99,9 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun updateShowPerfHud(show: Boolean) {
         context.settingsDataStore.edit { it[Keys.SHOW_PERF_HUD] = show }
+    }
+
+    suspend fun updateGraphicsPipelineMode(mode: GraphicsPipelineMode) {
+        context.settingsDataStore.edit { it[Keys.GRAPHICS_PIPELINE_MODE] = mode.name }
     }
 }
