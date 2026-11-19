@@ -24,3 +24,9 @@ jobs:
             -dname "CN=Android Debug,O=Android,C=US"
       - name: Run unit tests & build debug APK
         run: gradle testDebugUnitTest assembleDebug
+      - name: Upload Debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: matchday-lan-debug-apk
+          path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
