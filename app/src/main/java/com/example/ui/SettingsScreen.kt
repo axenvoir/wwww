@@ -32,6 +32,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.example.game.model.AiDifficulty
 import com.example.game.model.CameraPreset
+import com.example.game.model.GraphicsPipelineMode
 import com.example.game.model.GraphicsQuality
 import com.example.game.model.StadiumPreset
 import com.example.game.model.UserSettings
@@ -47,6 +48,7 @@ import com.example.ui.theme.TunnelNavy
 @Composable
 fun SettingsScreen(
     settings: UserSettings,
+    onUpdateGraphicsPipelineMode: (GraphicsPipelineMode) -> Unit = {},
     onUpdateGraphics: (GraphicsQuality) -> Unit,
     onUpdateCamera: (CameraPreset) -> Unit,
     onUpdateCameraZoom: (Int) -> Unit,
@@ -105,6 +107,18 @@ fun SettingsScreen(
                             )
                         }
                     }
+                                    Text("RENDER PIPELINE", style = MaterialTheme.typography.titleMedium, color = PitchEmerald)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    GraphicsPipelineMode.entries.forEach { mode ->
+                        SelectableChip(
+                            label = mode.displayName,
+                            selected = settings.graphicsPipelineMode == mode,
+                            accent = PitchEmerald,
+                            modifier = Modifier.weight(1f),
+                            onClick = { onUpdateGraphicsPipelineMode(mode) }
+                        )
+                    }
+                }                    
 
                     Text("BROADCAST CAMERA", style = MaterialTheme.typography.titleMedium, color = TacticalCyan)
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
