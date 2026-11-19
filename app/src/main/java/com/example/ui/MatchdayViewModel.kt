@@ -12,6 +12,7 @@ import com.example.game.engine.RenderWorldSnapshot
 import com.example.game.model.AiDifficulty
 import com.example.game.model.CameraPreset
 import com.example.game.model.GraphicsQuality
+import com.example.game.model.GraphicsPipelineMode
 import com.example.game.model.MatchConfig
 import com.example.game.model.MatchHudSnapshot
 import com.example.game.model.PlayerInput
@@ -198,7 +199,10 @@ class MatchdayViewModel(application: Application) : AndroidViewModel(application
         _matchConfig.update { it.copy(graphicsQuality = quality) }
         simulation.updateVisualConfig(graphicsQuality = quality)
     }
-
+    fun updateGraphicsPipelineMode(mode: GraphicsPipelineMode) {
+        viewModelScope.launch { settingsRepo.updateGraphicsPipelineMode(mode) }
+    }
+    
     fun updateCameraPreset(preset: CameraPreset) {
         viewModelScope.launch { settingsRepo.updateCameraPreset(preset) }
         _matchConfig.update { it.copy(cameraPreset = preset) }
