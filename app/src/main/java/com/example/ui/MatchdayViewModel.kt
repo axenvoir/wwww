@@ -134,7 +134,8 @@ class MatchdayViewModel(application: Application) : AndroidViewModel(application
                         cameraZoom = userSettings.cameraZoom,
                         cameraHeight = userSettings.cameraHeight,
                         matchMinutes = if (_screen.value == AppScreen.MAIN_MENU) userSettings.matchMinutes else cfg.matchMinutes,
-                        difficulty = userSettings.difficulty
+                        difficulty = userSettings.difficulty,
+                        graphicsPipelineMode = userSettings.graphicsPipelineMode
                     )
                 }
                 simulation.updateVisualConfig(
@@ -201,6 +202,7 @@ class MatchdayViewModel(application: Application) : AndroidViewModel(application
     }
     fun updateGraphicsPipelineMode(mode: GraphicsPipelineMode) {
         viewModelScope.launch { settingsRepo.updateGraphicsPipelineMode(mode) }
+        _matchConfig.update { it.copy(graphicsPipelineMode = mode) }
     }
     
     fun updateCameraPreset(preset: CameraPreset) {
@@ -256,7 +258,8 @@ class MatchdayViewModel(application: Application) : AndroidViewModel(application
             cameraPreset = _settings.value.cameraPreset,
             cameraZoom = _settings.value.cameraZoom,
             cameraHeight = _settings.value.cameraHeight,
-            difficulty = _settings.value.difficulty
+            difficulty = _settings.value.difficulty,
+            graphicsPipelineMode = _settings.value.graphicsPipelineMode
         )
         startMatchInternal(cfg)
     }
