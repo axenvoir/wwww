@@ -324,4 +324,115 @@ color = pow(color, vec3(1.0 / 2.2));
 fragColor = vec4(color, 1.0);
 }
 """.trimIndent()
+
+val BALL_PBR_FRAGMENT: String = """#version 300 es
+precision highp float;
+
+in vec3 vLocalPos;
+in vec3 vWorldPos;
+in vec3 vWorldNormal;
+
+uniform vec3 uSunDir;
+uniform vec3 uSunColor;
+uniform float uAmbient;
+uniform float uFloodlight;
+uniform vec3 uCameraPos;
+uniform vec3 uSkyColor;
+
+out vec4 fragColor;
+
+const float PI = 3.14159265359;
+
+float distributionGGX(vec3 N, vec3 H, float roughness) {
+    float a = roughness * roughness;
+    float a2 = a * a;
+    float NdotH = max(dot(N, H), 0.0);
+    float NdotH2 = NdotH * NdotH;
+    float denom = NdotH2 * (a2 - 1.0) + 1.0;
+    return a2 / max(PI * denom * denom, 0.0001);
+}
+
+float geometrySchlickGGX(float NdotV, float roughness) {
+    float r = roughness + 1.0;
+    float k = (r * r) / 8.0;
+    return NdotV / max(NdotV * (1.0 - k) + k, 0.0001);
+}
+
+float geometrySmith(vec3 N, vec3 V, vec3 L, float roughness) {
+    return geometrySchlickGGX(max(dot(N, V), 0.0), roughness) *
+           geometrySchlickGGX(max(dot(N, L), 0.0), roughness);
+}
+
+vec3 fresnelSchlick(float cosTheta, vec3 F0) {
+    return F0 + (1.0 - F0) * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0);
+}
+
+vec3 acesToneMap(vec3 x) {
+    float a = 2.51;
+    float b = 0.03;
+    float c = 2.43;
+    float d = 0.59;
+    float e = 0.14;
+    return clamp((x * (a * x + b)) / (x * (c * x + d) + e), 0.0, 1.0);
+}
+
+void main() {
+    vec3 N = normalize(vWorldNormal);
+    vec3 V = normalize(uCameraPos - vWorldPos);
+    float NdotV = max(dot(N, V), 0.001);
+
+    vec3 p = normalize(vLocalPos);
+    float seam = abs(sin(p.x * 11.5) * cos(p.y * 11.5) + sin(p.y * 11.5) * cos(p.z * 11.5) + sin(p.z * 11.5) * cos(p.x * 11.5));
+    float isSeam = 1.0 - smoothstep(0.02, 0.09, seam);
+    float darkPanel = smoothstep(0.55, 0.72, abs(dot(p, normalize(vec3(1.0, 1.618, 0.0)))));
+    vec3 albedo = mix(vec3(0.92, 0.92, 0.90), vec3(0.09, 0.10, 0.12), darkPanel * 0.85);
+    albedo = mix(albedo, vec3(0.06, 0.06, 0.07), isSeam * 0.75);
+    float roughness = mix(0.28, 0.62, isSeam);
+    roughness = mix(roughness, 0.22, darkPanel * 0.4);
+    vec3 F0 = vec3(0.045);
+
+    vec3 Lo = vec3(0.0);
+    vec3 Lsun = normalize(uSunDir);
+    vec3 Hsun = normalize(V + Lsun);
+    float sunNdotL = max(dot(N, Lsun), 0.0);
+    float Dsun = distributionGGX(N, Hsun, roughness);
+    float Gsun = geometrySmith(N, V, Lsun, roughness);
+    vec3 Fsun = fresnelSchlick(max(dot(Hsun, V), 0.0), F0);
+    vec3 specSun = (Dsun * Gsun * Fsun) / max(4.0 * NdotV * max(sunNdotL, 0.001), 0.001);
+    Lo += ((vec3(1.0) - Fsun) * albedo / PI + specSun) * uSunColor * sunNdotL;
+
+    vec3 floodPos[4];
+    floodPos[0] = vec3(-58.0, 34.0, -40.0);
+    floodPos[1] = vec3(58.0, 34.0, -40.0);
+    floodPos[2] = vec3(-58.0, 34.0, 40.0);
+    floodPos[3] = vec3(58.0, 34.0, 40.0);
+    for (int i = 0; i < 4; i++) {
+        vec3 Lvec = floodPos[i] - vWorldPos;
+        float dist = length(Lvec);
+        vec3 L = Lvec / max(dist, 0.001);
+        vec3 H = normalize(V + L);
+        float NdotL = max(dot(N, L), 0.0);
+        float atten = 1.0 / (1.0 + 0.00025 * dist * dist);
+        float D = distributionGGX(N, H, roughness);
+        float G = geometrySmith(N, V, L, roughness);
+        vec3 F = fresnelSchlick(max(dot(H, V), 0.0), F0);
+        vec3 spec = (D * G * F) / max(4.0 * NdotV * max(NdotL, 0.001), 0.001);
+        vec3 floodCol = vec3(1.0, 0.98, 0.94) * (1.55 * uFloodlight * atten);
+        Lo += ((vec3(1.0) - F) * albedo / PI + spec) * floodCol * NdotL;
+    }
+
+    float hemi = clamp(N.y * 0.5 + 0.5, 0.0, 1.0);
+    vec3 grassBounce = vec3(0.14, 0.36, 0.12) * (1.0 - hemi) * 0.35;
+    vec3 skyBounce = uSkyColor * hemi * 0.22;
+    vec3 ambient = (vec3(uAmbient) + grassBounce + skyBounce) * albedo;
+
+    float rim = pow(1.0 - NdotV, 3.2);
+    vec3 rimLight = mix(uSkyColor, vec3(0.95, 0.98, 1.0), 0.55) * rim * (0.42 + 0.28 * uFloodlight);
+
+    vec3 color = ambient + Lo + rimLight;
+    color = acesToneMap(color);
+    color = pow(color, vec3(1.0 / 2.2));
+    fragColor = vec4(color, 1.0);
+}
+""".trimIndent()
 }
