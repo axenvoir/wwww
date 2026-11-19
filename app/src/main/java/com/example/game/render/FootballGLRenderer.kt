@@ -729,7 +729,7 @@ val usePbr = activePipelineMode == GraphicsPipelineMode.REALISTIC_PBR && skinned
 GLES30.glUniform3f(u("uSunColor", uBallSunCol), stadium.sunR, stadium.sunG, stadium.sunB)
 GLES30.glUniform1f(u("uAmbient", uBallAmb), stadium.ambientStrength)
 GLES30.glUniform1f(u("uFloodlight", uBallFlood), stadium.floodlightIntensity)
-GLES30.glUniform3f(u("uCameraPos", uBallCampos), camPosX, camPosY, camPosZ)
+GLES30.glUniform3f(u("uCameraPos", uBallCamPos), camPosX, camPosY, camPosZ)
 GLES30.glUniform3f(u("uSkyColor", uBallSky), stadium.skyR, stadium.skyG, stadium.skyB)
 
         Matrix.setIdentityM(modelMatrix, 0)
