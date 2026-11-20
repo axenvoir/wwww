@@ -66,7 +66,8 @@ class FootballGLRenderer(
         val cameraPos: Int,
         val skyColor: Int
     )
-
+    private val prevPlayerYaw = FloatArray(32)
+        private val prevPlayerYawInit = BooleanArray(32)
     private data class BallPbrLocations(
         val mvp: Int,
         val model: Int,
@@ -779,7 +780,7 @@ val pbrNow = System.nanoTime()
                 GameplayRealismTuning.normalizeAngleRad(p.facingYaw - previousYaw) / dt.coerceAtLeast(0.001f)
             } else {
                 0f
-            }
+            }.coerceIn(-6f, 6f)
             val isDecelerating = hasPlayerMotionHistory[playerIndex] &&
                 p.speed < previousPlayerSpeed[playerIndex] - 0.55f
             previousFacingYaw[playerIndex] = p.facingYaw
