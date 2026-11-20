@@ -4,6 +4,7 @@ import android.content.Context
 import android.opengl.GLES30
 import android.opengl.GLSurfaceView
 import android.opengl.Matrix
+import com.example.game.engine.GameplayRealismTuning
 import com.example.game.engine.PitchConstants
 import com.example.game.engine.RenderPlayer
 import com.example.game.engine.RenderWorldSnapshot
@@ -36,6 +37,47 @@ class FootballGLRenderer(
     private val snapshotProvider: () -> RenderWorldSnapshot,
     private val onFrameTick: (dt: Float, lastRenderNanos: Long) -> Unit
 ) : GLSurfaceView.Renderer {
+    private data class PitchPbrLocations(
+        val mvp: Int,
+        val model: Int,
+        val grassTint: Int,
+        val sunColor: Int,
+        val ambient: Int,
+        val floodlight: Int,
+        val skyColor: Int,
+        val cameraPos: Int,
+        val highDetail: Int
+    )
+
+    private data class SkinnedPbrLocations(
+        val vp: Int,
+        val model: Int,
+        val bones: Int,
+        val kitAtlas: Int,
+        val skinColor: Int,
+        val hairColor: Int,
+        val bootColor: Int,
+        val gloveColor: Int,
+        val isGoalkeeper: Int,
+        val sunDir: Int,
+        val sunColor: Int,
+        val ambient: Int,
+        val floodlight: Int,
+        val cameraPos: Int,
+        val skyColor: Int
+    )
+
+    private data class BallPbrLocations(
+        val mvp: Int,
+        val model: Int,
+        val sunDir: Int,
+        val sunColor: Int,
+        val ambient: Int,
+        val floodlight: Int,
+        val cameraPos: Int,
+        val skyColor: Int
+    )
+
     private val resolutionScaler = DynamicResolutionScaler()
     private var surfaceWidthPx = 1
     private var surfaceHeightPx = 1
@@ -45,6 +87,9 @@ private val postProcessPass = PostProcessPass()
     private var pitchPbrProgram = 0
 private var skinnedPbrProgram = 0
     private var ballPbrProgram = 0 
+    private var pitchPbrLocations: PitchPbrLocations? = null
+    private var skinnedPbrLocations: SkinnedPbrLocations? = null
+    private var ballPbrLocations: BallPbrLocations? = null
     private var pbrFpsLastNanos = 0L
     private var pbrEmaFrameMs = 16.6f
 private var activePipelineMode = GraphicsPipelineMode.CLASSIC
@@ -122,6 +167,9 @@ private var activePipelineMode = GraphicsPipelineMode.CLASSIC
 
     // Per-player skeletal animators (pre-allocated for 22 players -> zero per-frame allocations)
     private val animators = Array(22) { PlayerSkeletalAnimator() }
+    private val previousFacingYaw = FloatArray(22)
+    private val previousPlayerSpeed = FloatArray(22)
+    private val hasPlayerMotionHistory = BooleanArray(22)
 
     // Pre-allocated matrices
     private val projMatrix = FloatArray(16)
@@ -284,6 +332,53 @@ private var activePipelineMode = GraphicsPipelineMode.CLASSIC
         uPitchSky = GLES30.glGetUniformLocation(pitchProgram, "uSkyColor")
         uPitchCamPos = GLES30.glGetUniformLocation(pitchProgram, "uCameraPos")
         uPitchHighDetail = GLES30.glGetUniformLocation(pitchProgram, "uHighDetail")
+
+        if (pitchPbrProgram != 0) {
+            pitchPbrLocations = PitchPbrLocations(
+                mvp = GLES30.glGetUniformLocation(pitchPbrProgram, "uMvpMatrix"),
+                model = GLES30.glGetUniformLocation(pitchPbrProgram, "uModelMatrix"),
+                grassTint = GLES30.glGetUniformLocation(pitchPbrProgram, "uGrassTint"),
+                sunColor = GLES30.glGetUniformLocation(pitchPbrProgram, "uSunColor"),
+                ambient = GLES30.glGetUniformLocation(pitchPbrProgram, "uAmbient"),
+                floodlight = GLES30.glGetUniformLocation(pitchPbrProgram, "uFloodlight"),
+                skyColor = GLES30.glGetUniformLocation(pitchPbrProgram, "uSkyColor"),
+                cameraPos = GLES30.glGetUniformLocation(pitchPbrProgram, "uCameraPos"),
+                highDetail = GLES30.glGetUniformLocation(pitchPbrProgram, "uHighDetail")
+            )
+        }
+
+        if (skinnedPbrProgram != 0) {
+            skinnedPbrLocations = SkinnedPbrLocations(
+                vp = GLES30.glGetUniformLocation(skinnedPbrProgram, "uVpMatrix"),
+                model = GLES30.glGetUniformLocation(skinnedPbrProgram, "uModelMatrix"),
+                bones = GLES30.glGetUniformLocation(skinnedPbrProgram, "uBoneMatrices"),
+                kitAtlas = GLES30.glGetUniformLocation(skinnedPbrProgram, "uKitAtlas"),
+                skinColor = GLES30.glGetUniformLocation(skinnedPbrProgram, "uSkinColor"),
+                hairColor = GLES30.glGetUniformLocation(skinnedPbrProgram, "uHairColor"),
+                bootColor = GLES30.glGetUniformLocation(skinnedPbrProgram, "uBootColor"),
+                gloveColor = GLES30.glGetUniformLocation(skinnedPbrProgram, "uGloveColor"),
+                isGoalkeeper = GLES30.glGetUniformLocation(skinnedPbrProgram, "uIsGoalkeeper"),
+                sunDir = GLES30.glGetUniformLocation(skinnedPbrProgram, "uSunDir"),
+                sunColor = GLES30.glGetUniformLocation(skinnedPbrProgram, "uSunColor"),
+                ambient = GLES30.glGetUniformLocation(skinnedPbrProgram, "uAmbient"),
+                floodlight = GLES30.glGetUniformLocation(skinnedPbrProgram, "uFloodlight"),
+                cameraPos = GLES30.glGetUniformLocation(skinnedPbrProgram, "uCameraPos"),
+                skyColor = GLES30.glGetUniformLocation(skinnedPbrProgram, "uSkyColor")
+            )
+        }
+
+        if (ballPbrProgram != 0) {
+            ballPbrLocations = BallPbrLocations(
+                mvp = GLES30.glGetUniformLocation(ballPbrProgram, "uMvpMatrix"),
+                model = GLES30.glGetUniformLocation(ballPbrProgram, "uModelMatrix"),
+                sunDir = GLES30.glGetUniformLocation(ballPbrProgram, "uSunDir"),
+                sunColor = GLES30.glGetUniformLocation(ballPbrProgram, "uSunColor"),
+                ambient = GLES30.glGetUniformLocation(ballPbrProgram, "uAmbient"),
+                floodlight = GLES30.glGetUniformLocation(ballPbrProgram, "uFloodlight"),
+                cameraPos = GLES30.glGetUniformLocation(ballPbrProgram, "uCameraPos"),
+                skyColor = GLES30.glGetUniformLocation(ballPbrProgram, "uSkyColor")
+            )
+        }
 
         uCrowdVp = GLES30.glGetUniformLocation(crowdProgram, "uVpMatrix")
         uCrowdTime = GLES30.glGetUniformLocation(crowdProgram, "uTime")
@@ -501,20 +596,20 @@ val pbrNow = System.nanoTime()
     }
 
     private fun drawPitch(stadium: StadiumPreset, quality: GraphicsQuality) {
-val usePbr = activePipelineMode == GraphicsPipelineMode.REALISTIC_PBR && pitchPbrProgram != 0
+        val usePbr = activePipelineMode == GraphicsPipelineMode.REALISTIC_PBR && pitchPbrProgram != 0
         val prog = if (usePbr) pitchPbrProgram else pitchProgram
-        fun u(name: String, classic: Int) = if (usePbr) GLES30.glGetUniformLocation(prog, name) else classic
+        val pbr = if (usePbr) pitchPbrLocations else null
         GLES30.glUseProgram(prog)
         Matrix.multiplyMM(mvpMatrix, 0, vpMatrix, 0, identityMatrix, 0)
-        GLES30.glUniformMatrix4fv(u("uMvpMatrix", uPitchMvp), 1, false, mvpMatrix, 0)
-        GLES30.glUniformMatrix4fv(u("uModelMatrix", uPitchModel), 1, false, identityMatrix, 0)
-        GLES30.glUniform3f(u("uGrassTint", uPitchGrass), stadium.grassTintR, stadium.grassTintG, stadium.grassTintB)
-        GLES30.glUniform3f(u("uSunColor", uPitchSunCol), stadium.sunR, stadium.sunG, stadium.sunB)
-        GLES30.glUniform1f(u("uAmbient", uPitchAmb), stadium.ambientStrength)
-        GLES30.glUniform1f(u("uFloodlight", uPitchFlood), stadium.floodlightIntensity)
-        GLES30.glUniform3f(u("uSkyColor", uPitchSky), stadium.skyR, stadium.skyG, stadium.skyB)
-        GLES30.glUniform3f(u("uCameraPos", uPitchCamPos), camPosX, camPosY, camPosZ)
-        GLES30.glUniform1f(uPitchHighDetail, if (quality != GraphicsQuality.LOW) 1f else 0f)
+        GLES30.glUniformMatrix4fv(pbr?.mvp ?: uPitchMvp, 1, false, mvpMatrix, 0)
+        GLES30.glUniformMatrix4fv(pbr?.model ?: uPitchModel, 1, false, identityMatrix, 0)
+        GLES30.glUniform3f(pbr?.grassTint ?: uPitchGrass, stadium.grassTintR, stadium.grassTintG, stadium.grassTintB)
+        GLES30.glUniform3f(pbr?.sunColor ?: uPitchSunCol, stadium.sunR, stadium.sunG, stadium.sunB)
+        GLES30.glUniform1f(pbr?.ambient ?: uPitchAmb, stadium.ambientStrength)
+        GLES30.glUniform1f(pbr?.floodlight ?: uPitchFlood, stadium.floodlightIntensity)
+        GLES30.glUniform3f(pbr?.skyColor ?: uPitchSky, stadium.skyR, stadium.skyG, stadium.skyB)
+        GLES30.glUniform3f(pbr?.cameraPos ?: uPitchCamPos, camPosX, camPosY, camPosZ)
+        GLES30.glUniform1f(pbr?.highDetail ?: uPitchHighDetail, if (quality != GraphicsQuality.LOW) 1f else 0f)
         pitchMesh.draw()
     }
 
@@ -657,27 +752,46 @@ val usePbr = activePipelineMode == GraphicsPipelineMode.REALISTIC_PBR && pitchPb
         quality: GraphicsQuality,
         dt: Float
     ) {
-val usePbr = activePipelineMode == GraphicsPipelineMode.REALISTIC_PBR && skinnedPbrProgram != 0
+        val usePbr = activePipelineMode == GraphicsPipelineMode.REALISTIC_PBR && skinnedPbrProgram != 0
         val prog = if (usePbr) skinnedPbrProgram else skinnedProgram
-        fun u(name: String, classic: Int) = if (usePbr) GLES30.glGetUniformLocation(prog, name) else classic
+        val pbr = if (usePbr) skinnedPbrLocations else null
         GLES30.glUseProgram(prog)
-        GLES30.glUniformMatrix4fv(u("uVpMatrix", uSkVp), 1, false, vpMatrix, 0)
-        GLES30.glUniform3f(u("uSunDir", uSkSunDir), stadium.sunX, stadium.sunY, stadium.sunZ)
-        GLES30.glUniform3f(u("uSunColor", uSkSunCol), stadium.sunR, stadium.sunG, stadium.sunB)
-        GLES30.glUniform1f(u("uAmbient", uSkAmb), stadium.ambientStrength)
-        GLES30.glUniform1f(u("uFloodlight", uSkFlood), stadium.floodlightIntensity)
-        GLES30.glUniform3f(u("uCameraPos", uSkCamPos), camPosX, camPosY, camPosZ)
-        GLES30.glUniform3f(u("uSkyColor", uSkSky), stadium.skyR, stadium.skyG, stadium.skyB)
-        GLES30.glUniform3f(u("uGloveColor", uSkGlove), gkGloveColor[0], gkGloveColor[1], gkGloveColor[2])
-        GLES30.glUniform1i(u("uKitAtlas", uSkAtlas), 0)
+        GLES30.glUniformMatrix4fv(pbr?.vp ?: uSkVp, 1, false, vpMatrix, 0)
+        GLES30.glUniform3f(pbr?.sunDir ?: uSkSunDir, stadium.sunX, stadium.sunY, stadium.sunZ)
+        GLES30.glUniform3f(pbr?.sunColor ?: uSkSunCol, stadium.sunR, stadium.sunG, stadium.sunB)
+        GLES30.glUniform1f(pbr?.ambient ?: uSkAmb, stadium.ambientStrength)
+        GLES30.glUniform1f(pbr?.floodlight ?: uSkFlood, stadium.floodlightIntensity)
+        GLES30.glUniform3f(pbr?.cameraPos ?: uSkCamPos, camPosX, camPosY, camPosZ)
+        GLES30.glUniform3f(pbr?.skyColor ?: uSkSky, stadium.skyR, stadium.skyG, stadium.skyB)
+        GLES30.glUniform3f(pbr?.gloveColor ?: uSkGlove, gkGloveColor[0], gkGloveColor[1], gkGloveColor[2])
+        GLES30.glUniform1i(pbr?.kitAtlas ?: uSkAtlas, 0)
 
         GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
         val bodyMesh = if (quality == GraphicsQuality.LOW) playerMeshLow else playerMeshHigh
         val draw3dHair = quality != GraphicsQuality.LOW
 
         for (p in snap.players) {
-            val animator = animators[p.id.coerceIn(0, animators.lastIndex)]
+            val playerIndex = p.id.coerceIn(0, animators.lastIndex)
+            val animator = animators[playerIndex]
             val isDribbling = (p.id == snap.ballOwnerId && p.speed > 0.45f)
+            val previousYaw = previousFacingYaw[playerIndex]
+            val yawVelocity = if (hasPlayerMotionHistory[playerIndex]) {
+                GameplayRealismTuning.normalizeAngleRad(p.facingYaw - previousYaw) / dt.coerceAtLeast(0.001f)
+            } else {
+                0f
+            }
+            val isDecelerating = hasPlayerMotionHistory[playerIndex] &&
+                p.speed < previousPlayerSpeed[playerIndex] - 0.55f
+            previousFacingYaw[playerIndex] = p.facingYaw
+            previousPlayerSpeed[playerIndex] = p.speed
+            hasPlayerMotionHistory[playerIndex] = true
+            val headLookYaw = GameplayRealismTuning.headLookAtYawDegrees(
+                playerX = p.x,
+                playerZ = p.z,
+                facingYawRad = p.facingYaw,
+                targetX = snap.ballX,
+                targetZ = snap.ballZ
+            )
 
             animator.updateAndBuildSkinMatrices(
                 state = p.animState,
@@ -686,7 +800,11 @@ val usePbr = activePipelineMode == GraphicsPipelineMode.REALISTIC_PBR && skinned
                 playerY = p.y,
                 isDribbling = isDribbling,
                 diveDir = p.diveDir,
-                dt = dt
+                dt = dt,
+                yawVelocityRad = yawVelocity,
+                stamina = p.stamina,
+                headLookYawDeg = headLookYaw,
+                isDecelerating = isDecelerating
             )
 
             val atlasTex = when {
@@ -715,17 +833,17 @@ val usePbr = activePipelineMode == GraphicsPipelineMode.REALISTIC_PBR && skinned
             Matrix.rotateM(modelMatrix, 0, yawDeg, 0f, 1f, 0f)
             Matrix.scaleM(modelMatrix, 0, widthScale, heightScale, widthScale)
 
-            GLES30.glUniformMatrix4fv(u("uModelMatrix", uSkModel), 1, false, modelMatrix, 0)
-            GLES30.glUniformMatrix4fv(u("uBoneMatrices", uSkBones), SkeletonRig.BONE_COUNT, false, animator.skinMatrices, 0)
+            GLES30.glUniformMatrix4fv(pbr?.model ?: uSkModel, 1, false, modelMatrix, 0)
+            GLES30.glUniformMatrix4fv(pbr?.bones ?: uSkBones, SkeletonRig.BONE_COUNT, false, animator.skinMatrices, 0)
 
             val skin = skinPalette[(p.skinToneIndex + p.id) % skinPalette.size]
             val hair = hairPalette[(p.hairToneIndex + p.shirtNumber) % hairPalette.size]
             val boot = bootPalette[(p.id * 3 + p.shirtNumber) % bootPalette.size]
 
-                     GLES30.glUniform3f(u("uSkinColor", uSkSkin), skin[0], skin[1], skin[2])
-            GLES30.glUniform3f(u("uHairColor", uSkHair), hair[0], hair[1], hair[2])
-            GLES30.glUniform3f(u("uBootColor", uSkBoot), boot[0], boot[1], boot[2])
-            GLES30.glUniform1f(u("uIsGoalkeeper", uSkIsGk), if (p.role == PlayerRole.GK) 1f else 0f)
+            GLES30.glUniform3f(pbr?.skinColor ?: uSkSkin, skin[0], skin[1], skin[2])
+            GLES30.glUniform3f(pbr?.hairColor ?: uSkHair, hair[0], hair[1], hair[2])
+            GLES30.glUniform3f(pbr?.bootColor ?: uSkBoot, boot[0], boot[1], boot[2])
+            GLES30.glUniform1f(pbr?.isGoalkeeper ?: uSkIsGk, if (p.role == PlayerRole.GK) 1f else 0f)
 
             // Draw sculpted skinned body
             bodyMesh.draw()
@@ -741,14 +859,14 @@ val usePbr = activePipelineMode == GraphicsPipelineMode.REALISTIC_PBR && skinned
     private fun drawMatchBall(snap: RenderWorldSnapshot, stadium: StadiumPreset, quality: GraphicsQuality)  { 
         val usePbr = activePipelineMode == GraphicsPipelineMode.REALISTIC_PBR && ballPbrProgram != 0
         val prog = if (usePbr) ballPbrProgram else ballProgram
-        fun u(name: String, classic: Int) = if (usePbr) GLES30.glGetUniformLocation(prog, name) else classic
+        val pbr = if (usePbr) ballPbrLocations else null
         GLES30.glUseProgram(prog)
-        GLES30.glUniform3f(u("uSunDir", uBallSunDir), stadium.sunX, stadium.sunY, stadium.sunZ)
-GLES30.glUniform3f(u("uSunColor", uBallSunCol), stadium.sunR, stadium.sunG, stadium.sunB)
-GLES30.glUniform1f(u("uAmbient", uBallAmb), stadium.ambientStrength)
-GLES30.glUniform1f(u("uFloodlight", uBallFlood), stadium.floodlightIntensity)
-GLES30.glUniform3f(u("uCameraPos", uBallCamPos), camPosX, camPosY, camPosZ)
-GLES30.glUniform3f(u("uSkyColor", uBallSky), stadium.skyR, stadium.skyG, stadium.skyB)
+        GLES30.glUniform3f(pbr?.sunDir ?: uBallSunDir, stadium.sunX, stadium.sunY, stadium.sunZ)
+        GLES30.glUniform3f(pbr?.sunColor ?: uBallSunCol, stadium.sunR, stadium.sunG, stadium.sunB)
+        GLES30.glUniform1f(pbr?.ambient ?: uBallAmb, stadium.ambientStrength)
+        GLES30.glUniform1f(pbr?.floodlight ?: uBallFlood, stadium.floodlightIntensity)
+        GLES30.glUniform3f(pbr?.cameraPos ?: uBallCamPos, camPosX, camPosY, camPosZ)
+        GLES30.glUniform3f(pbr?.skyColor ?: uBallSky, stadium.skyR, stadium.skyG, stadium.skyB)
 
         Matrix.setIdentityM(modelMatrix, 0)
         Matrix.translateM(modelMatrix, 0, snap.ballX, snap.ballY, snap.ballZ)
@@ -759,8 +877,8 @@ GLES30.glUniform3f(u("uSkyColor", uBallSky), stadium.skyR, stadium.skyG, stadium
         Matrix.scaleM(modelMatrix, 0, r, r, r)
         Matrix.multiplyMM(mvpMatrix, 0, vpMatrix, 0, modelMatrix, 0)
 
-GLES30.glUniformMatrix4fv(u("uMvpMatrix", uBallMvp), 1, false, mvpMatrix, 0)
-        GLES30.glUniformMatrix4fv(u("uModelMatrix", uBallModel), 1, false, modelMatrix, 0)
+        GLES30.glUniformMatrix4fv(pbr?.mvp ?: uBallMvp, 1, false, mvpMatrix, 0)
+        GLES30.glUniformMatrix4fv(pbr?.model ?: uBallModel, 1, false, modelMatrix, 0)
         if (quality == GraphicsQuality.LOW) ballMeshLow.draw() else ballMeshHigh.draw()
     }
 

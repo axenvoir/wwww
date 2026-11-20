@@ -9,9 +9,11 @@ import com.example.game.model.PlayerRole
 import com.example.game.model.TeamSide
 import kotlin.math.abs
 import kotlin.math.atan2
+import kotlin.math.cos
 import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.sin
 import kotlin.math.sign
 
 data class AiActionDecision(
@@ -42,7 +44,7 @@ class FootballAiController {
         isSecondaryPresser: Boolean
     ): AiActionDecision {
         if (player.role == PlayerRole.GK) {
-            return computeGoalkeeperDecision(player, ball, attackDir, difficulty)
+            return computeGoalkeeperDecision(player, allPlayers, ball, attackDir, difficulty)
         }
 
         val ownsBall = ball.ownerId == player.id
@@ -54,14 +56,28 @@ class FootballAiController {
         val distToBall = hypot(ball.x - player.x, ball.z - player.z)
 
         // If this player is the designated closest chaser or loose-ball challenger
-        if (isClosestChaser || (!teamHasBall && distToBall < 7.5f)) {
+        if (isClosestChaser || (isSecondaryPresser && !teamHasBall) || (!teamHasBall && distToBall < 7.5f)) {
             val leadT = min(0.45f, distToBall / 14f)
-            val targetX = (ball.x + ball.vx * leadT).coerceIn(-PitchConstants.HALF_LENGTH + 1f, PitchConstants.HALF_LENGTH - 1f)
-            val targetZ = (ball.z + ball.vz * leadT).coerceIn(-PitchConstants.HALF_WIDTH + 1f, PitchConstants.HALF_WIDTH - 1f)
+            val jockeyMode = isSecondaryPresser && !isClosestChaser && !teamHasBall && ball.ownerId != -1
+            val ownGoalX = -PitchConstants.HALF_LENGTH * attackDir
+            val goalDistance = hypot(ownGoalX - ball.x, ball.z).coerceAtLeast(0.001f)
+            val targetX = (
+                if (jockeyMode) ball.x + ((ownGoalX - ball.x) / goalDistance) * 3.8f
+                else ball.x + ball.vx * leadT
+            ).coerceIn(-PitchConstants.HALF_LENGTH + 1f, PitchConstants.HALF_LENGTH - 1f)
+            val targetZ = (
+                if (jockeyMode) ball.z + (-ball.z / goalDistance) * 3.8f
+                else ball.z + ball.vz * leadT
+            ).coerceIn(-PitchConstants.HALF_WIDTH + 1f, PitchConstants.HALF_WIDTH - 1f)
             val dx = targetX - player.x
             val dz = targetZ - player.z
             val d = hypot(dx, dz).coerceAtLeast(0.001f)
-            val shouldTackle = !teamHasBall && ball.ownerId != -1 && distToBall < 1.85f &&
+            val facingDot = (
+                cos(player.facingYaw) * (ball.x - player.x) +
+                    sin(player.facingYaw) * (ball.z - player.z)
+                ) / distToBall.coerceAtLeast(0.001f)
+            val shouldTackle = !teamHasBall && ball.ownerId != -1 && distToBall < 1.55f &&
+                facingDot > 0.55f &&
                 player.actionCooldown <= 0f && (!isTeamHumanControlled || isSecondaryPresser)
             return AiActionDecision(
                 moveX = dx / d,
@@ -223,6 +239,7 @@ class FootballAiController {
 
     private fun computeGoalkeeperDecision(
         gk: PlayerEntity,
+        allPlayers: List<PlayerEntity>,
         ball: BallState,
         attackDir: Float,
         difficulty: AiDifficulty
@@ -230,6 +247,18 @@ class FootballAiController {
         val ownGoalX = -PitchConstants.HALF_LENGTH * attackDir
         // If GK owns the ball, clear/pass forward immediately
         if (ball.ownerId == gk.id && gk.actionCooldown <= 0f) {
+            val openMate = findOpenGoalkeeperPassTarget(gk, allPlayers)
+            if (openMate != null) {
+                val dx = openMate.x - gk.x
+                val dz = openMate.z - gk.z
+                val distance = hypot(dx, dz).coerceAtLeast(0.001f)
+                return AiActionDecision(
+                    wantPass = true,
+                    kickPower = (distance / 36f).coerceIn(0.28f, 0.52f),
+                    aimX = dx / distance,
+                    aimZ = dz / distance
+                )
+            }
             val aimZ = if (gk.z >= 0f) -0.35f else 0.35f
             val n = hypot(attackDir, aimZ)
             return AiActionDecision(
@@ -290,6 +319,40 @@ class FootballAiController {
             moveZ = (dz / d) * weight,
             sprint = d > 2.2f
         )
+    }
+
+    private fun findOpenGoalkeeperPassTarget(
+        goalkeeper: PlayerEntity,
+        allPlayers: List<PlayerEntity>
+    ): PlayerEntity? {
+        var bestMate: PlayerEntity? = null
+        var bestDistance = Float.POSITIVE_INFINITY
+
+        for (candidate in allPlayers) {
+            if (candidate.id == goalkeeper.id || candidate.side != goalkeeper.side) continue
+            if (candidate.role != PlayerRole.DF && candidate.role != PlayerRole.MF) continue
+
+            val dx = candidate.x - goalkeeper.x
+            val dz = candidate.z - goalkeeper.z
+            val distance = hypot(dx, dz)
+            if (distance > 28f || distance >= bestDistance) continue
+
+            var isMarked = false
+            for (opponent in allPlayers) {
+                if (opponent.side != goalkeeper.side &&
+                    hypot(opponent.x - candidate.x, opponent.z - candidate.z) < 6.5f
+                ) {
+                    isMarked = true
+                    break
+                }
+            }
+
+            if (!isMarked) {
+                bestMate = candidate
+                bestDistance = distance
+            }
+        }
+        return bestMate
     }
 
     private fun findBestPassTarget(

@@ -85,6 +85,18 @@ class AdvancedMultiplayerAndPerfTest {
     }
 
     @Test
+    fun snapshotInterpolatorHoldsOldestSnapshotWhenRenderTimePrecedesBuffer() {
+        val interp = SnapshotInterpolator()
+        interp.pushSnapshot(buildSnap(seq = 1, ackSeq = 0, receivedMs = 1000L, ballX = 1f, ballVx = 0f, awayStrikerX = 5f))
+        interp.pushSnapshot(buildSnap(seq = 2, ackSeq = 0, receivedMs = 1040L, ballX = 4f, ballVx = 0f, awayStrikerX = 7f))
+
+        val sampled = interp.sampleInterpolatedWorld(nowMs = 1020L)
+
+        assertNotNull(sampled)
+        assertEquals("Old render times must not jump to the newest snapshot", 1f, sampled!!.ballX, 0.001f)
+    }
+
+    @Test
     fun clientPredictionAndServerReconciliationConverge() {
         val interp = SnapshotInterpolator()
         interp.pushSnapshot(buildSnap(seq = 1, ackSeq = 0, receivedMs = 1000L, ballX = 0f, ballVx = 0f, awayStrikerX = 10f))

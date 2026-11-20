@@ -10,8 +10,10 @@ import com.example.game.model.TeamSide
 import com.example.game.network.LanProtocol
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.nio.ByteBuffer
 
 class FootballEngineAndLanTest {
 
@@ -29,6 +31,21 @@ class FootballEngineAndLanTest {
         // Step past kickoff countdown (1.5s)
         repeat(100) { sim.step(PitchConstants.FIXED_DT) }
         assertEquals(MatchPhase.PLAYING, sim.phase)
+    }
+
+    @Test
+    fun networkSnapshotCapturesOneConsistentWorldState() {
+        val sim = FootballSimulation(MatchConfig())
+
+        val snapshot = sim.captureNetworkWorldState()
+
+        assertEquals(0, snapshot.homeGoals)
+        assertEquals(0, snapshot.awayGoals)
+        assertEquals(MatchPhase.KICKOFF, snapshot.phase)
+        assertEquals(9, snapshot.activeHomeId)
+        assertEquals(20, snapshot.activeAwayId)
+        assertEquals(PitchConstants.BALL_RADIUS, snapshot.ballY, 0.001f)
+        assertEquals(22, snapshot.players.size)
     }
 
     @Test
@@ -79,6 +96,7 @@ class FootballEngineAndLanTest {
             shootCharge = 0.90f
         )
         val encodedInput = LanProtocol.encodeClientInput(input)
+        assertEquals(25, encodedInput.size)
         val decodedInput = LanProtocol.decodeClientInput(encodedInput, encodedInput.size)
         assertNotNull(decodedInput)
         assertEquals(42, decodedInput!!.seq)
@@ -131,5 +149,44 @@ class FootballEngineAndLanTest {
         assertEquals("Pixel 9 Pro", host!!.hostName)
         assertEquals("192.168.43.1", host.ipAddress)
         assertEquals(45678, host.port)
+    }
+
+    @Test
+    fun lanProtocolRejectsMalformedAndNonFinitePackets() {
+        val input = LanProtocol.encodeClientInput(PlayerInput(moveX = 0.4f))
+        val nonFiniteInput = input.copyOf().also {
+            ByteBuffer.wrap(it).putFloat(5, Float.NaN)
+        }
+        assertNull(LanProtocol.decodeClientInput(nonFiniteInput, nonFiniteInput.size))
+        assertNull(LanProtocol.decodeClientInput(input, input.size + 1))
+
+        val sim = FootballSimulation(MatchConfig())
+        val world = LanProtocol.encodeWorldSnapshot(
+            seq = 1,
+            lastAckedClientInputSeq = 0,
+            serverTimeMs = 1L,
+            homeGoals = 0,
+            awayGoals = 0,
+            elapsedSec = 0f,
+            half = 1,
+            phase = MatchPhase.KICKOFF,
+            activeHomeId = 9,
+            activeAwayId = 20,
+            ballX = 0f,
+            ballY = PitchConstants.BALL_RADIUS,
+            ballZ = 0f,
+            ballVx = 0f,
+            ballVy = 0f,
+            ballVz = 0f,
+            ballOwner = -1,
+            stats = sim.currentStats,
+            players = sim.exportNetworkPlayers()
+        )
+        assertNull(LanProtocol.decodeWorldSnapshot(world, world.size - 1))
+
+        val nonFiniteWorld = world.copyOf().also {
+            ByteBuffer.wrap(it).putFloat(99, Float.POSITIVE_INFINITY)
+        }
+        assertNull(LanProtocol.decodeWorldSnapshot(nonFiniteWorld, nonFiniteWorld.size))
     }
 }

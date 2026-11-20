@@ -59,6 +59,25 @@ data class RenderPlayer(
     val diveDir: Float
 )
 
+data class NetworkWorldState(
+    val homeGoals: Int,
+    val awayGoals: Int,
+    val elapsedSec: Float,
+    val half: Int,
+    val phase: MatchPhase,
+    val activeHomeId: Int,
+    val activeAwayId: Int,
+    val ballX: Float,
+    val ballY: Float,
+    val ballZ: Float,
+    val ballVx: Float,
+    val ballVy: Float,
+    val ballVz: Float,
+    val ballOwner: Int,
+    val stats: MatchStats,
+    val players: List<NetPlayerState>
+)
+
 class FootballSimulation(
     initialConfig: MatchConfig = MatchConfig(),
     private val onSoundEvent: ((com.example.game.model.SoundEvent) -> Unit)? = null
@@ -629,9 +648,9 @@ class FootballSimulation(
         val staminaFactor = 0.78f + p.stamina * 0.22f
         val sprintMul = if (sprint) 1.28f else 1.0f
         val maxSpeed = p.baseSpeed * dribbleFactor * staminaFactor * sprintMul
-
-        val targetVx = inputX * maxSpeed
-        val targetVz = inputZ * maxSpeed
+        val turnBrake = if (mag > 0.08f) GameplayRealismTuning.turnBrakingFactor(p.facingYaw, atan2(inputZ, inputX), hypot(p.vx, p.vz)) else 1.0f
+        val targetVx = inputX * maxSpeed * turnBrake
+        val targetVz = inputZ * maxSpeed * turnBrake
 
         // Balanced eFootball-style momentum & acceleration
         val accel = if (mag > 0.08f) 11.5f else 14.0f
@@ -774,7 +793,7 @@ class FootballSimulation(
         ball.vx = dirX * speed
         ball.vy = loft
         ball.vz = dirZ * speed
-        ball.spinY = if (isShot) (kicker.vz * 0.35f).coerceIn(-3f, 3f) else 0f
+        ball.spinY = if (isShot) (kicker.vz * 0.35f).coerceIn(-3f, 3f) else GameplayRealismTuning.passMagnusSpin(kicker.vz, loft, speed)
 
         kicker.facingYaw = atan2(dirZ, dirX)
         kicker.kickTimer = 0.28f
@@ -996,7 +1015,16 @@ class FootballSimulation(
                     } else {
                         ball.ownerId = p.id
                         ball.lastTouchSide = p.side
-                        ball.lastTouchPlayerId = p.id
+                        ball.lastTouchPlayerId = p.id // first touch
+                        if (p.role != PlayerRole.GK) {
+                            val receiverSpeed = hypot(p.vx, p.vz)
+                            val knockDist = GameplayRealismTuning.firstTouchKnockDistance(ballSpeed, receiverSpeed, receiverSpeed > p.baseSpeed * 1.05f, p.stamina)
+                            val dirYaw = if (receiverSpeed > 0.35f) atan2(p.vz, p.vx) else p.facingYaw
+                            ball.x = (p.x + cos(dirYaw) * knockDist).coerceIn(-PitchConstants.HALF_LENGTH + 0.5f, PitchConstants.HALF_LENGTH - 0.5f)
+                            ball.z = (p.z + sin(dirYaw) * knockDist).coerceIn(-PitchConstants.HALF_WIDTH + 0.5f, PitchConstants.HALF_WIDTH - 0.5f)
+                            ball.y = PitchConstants.BALL_RADIUS
+                            ball.vy = 0f
+                        }
                     }
                     break
                 }
@@ -1265,7 +1293,32 @@ class FootballSimulation(
         }
     }
 
+    fun captureNetworkWorldState(): NetworkWorldState = synchronized(lock) {
+        NetworkWorldState(
+            homeGoals = homeScore,
+            awayGoals = awayScore,
+            elapsedSec = matchElapsedRealSeconds,
+            half = half,
+            phase = phase,
+            activeHomeId = activeHomePlayerId,
+            activeAwayId = activeAwayPlayerId,
+            ballX = ball.x,
+            ballY = ball.y,
+            ballZ = ball.z,
+            ballVx = ball.vx,
+            ballVy = ball.vy,
+            ballVz = ball.vz,
+            ballOwner = ball.ownerId,
+            stats = stats,
+            players = snapshotNetworkPlayers()
+        )
+    }
+
     fun exportNetworkPlayers(): List<NetPlayerState> = synchronized(lock) {
+        snapshotNetworkPlayers()
+    }
+
+    private fun snapshotNetworkPlayers(): List<NetPlayerState> =
         players.map {
             NetPlayerState(
                 x = it.x,
@@ -1277,7 +1330,6 @@ class FootballSimulation(
                 diveDir = it.diveDir
             )
         }
-    }
 }
 
 data class NetPlayerState(
