@@ -4,10 +4,14 @@ import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioTrack
 import com.example.game.model.SoundEvent
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.PI
 import kotlin.math.exp
@@ -23,6 +27,10 @@ class MatchAudioEngine {
 
     private val sampleRate = 22050
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val soundEvents = Channel<SoundEvent>(
+        capacity = 8,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST
+    )
 
     @Volatile
     var isEnabled: Boolean = true
@@ -41,41 +49,64 @@ class MatchAudioEngine {
         )
     }
 
+    init {
+        scope.launch {
+            for (event in soundEvents) {
+                if (isEnabled) playNow(event)
+            }
+        }
+    }
+
     fun play(event: SoundEvent) {
         if (!isEnabled) return
-        scope.launch {
-            runCatching {
-                val samples = pcmCache[event] ?: return@runCatching
-                val bufferBytes = samples.size * 2
-                val track = AudioTrack.Builder()
-                    .setAudioAttributes(
-                        AudioAttributes.Builder()
-                            .setUsage(AudioAttributes.USAGE_GAME)
-                            .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                            .build()
-                    )
-                    .setAudioFormat(
-                        AudioFormat.Builder()
-                            .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
-                            .setSampleRate(sampleRate)
-                            .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
-                            .build()
-                    )
-                    .setTransferMode(AudioTrack.MODE_STATIC)
-                    .setBufferSizeInBytes(bufferBytes)
-                    .build()
+        soundEvents.trySend(event)
+    }
 
-                track.write(samples, 0, samples.size)
-                track.play()
-                val durationMs = ((samples.size * 1000L) / sampleRate) + 80L
-                Thread.sleep(durationMs)
-                track.stop()
-                track.release()
+    private suspend fun playNow(event: SoundEvent) {
+        val samples = pcmCache[event] ?: return
+        var track: AudioTrack? = null
+        try {
+            val createdTrack = AudioTrack.Builder()
+                .setAudioAttributes(
+                    AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_GAME)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                        .build()
+                )
+                .setAudioFormat(
+                    AudioFormat.Builder()
+                        .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                        .setSampleRate(sampleRate)
+                        .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
+                        .build()
+                )
+                .setTransferMode(AudioTrack.MODE_STATIC)
+                .setBufferSizeInBytes(samples.size * Short.SIZE_BYTES)
+                .build()
+            track = createdTrack
+            if (createdTrack.state != AudioTrack.STATE_INITIALIZED) return
+
+            val writtenSamples = createdTrack.write(samples, 0, samples.size)
+            if (writtenSamples <= 0) return
+
+            createdTrack.play()
+            delay((writtenSamples * 1000L / sampleRate) + 80L)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            // Audio hardware may be unavailable while the app is backgrounded or interrupted.
+        } finally {
+            track?.let { audioTrack ->
+                runCatching {
+                    if (audioTrack.playState == AudioTrack.PLAYSTATE_PLAYING) audioTrack.stop()
+                }
+                runCatching { audioTrack.release() }
             }
         }
     }
 
     fun release() {
+        soundEvents.close()
         scope.cancel()
     }
 
