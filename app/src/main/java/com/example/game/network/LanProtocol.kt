@@ -14,6 +14,9 @@ object LanProtocol {
     const val PORT_TCP_LOBBY = 45678
     const val PORT_UDP_GAME = 45679
     const val DISCOVERY_MAGIC = "MDLAN1"
+    private const val CLIENT_INPUT_PACKET_BYTES = 25
+    private const val WORLD_SNAPSHOT_HEADER_BYTES = 99
+    private const val WORLD_SNAPSHOT_PLAYER_BYTES = 25
 
     // UDP Gameplay Packet Types
     const val PACKET_CLIENT_INPUT: Byte = 1
@@ -75,7 +78,7 @@ object LanProtocol {
     }
 
     fun encodeClientInput(input: PlayerInput): ByteArray {
-        val buf = ByteBuffer.allocate(32)
+        val buf = ByteBuffer.allocate(CLIENT_INPUT_PACKET_BYTES)
         buf.put(PACKET_CLIENT_INPUT)
         buf.putInt(input.seq)
         buf.putFloat(input.moveX)
@@ -94,7 +97,7 @@ object LanProtocol {
     }
 
     fun decodeClientInput(bytes: ByteArray, length: Int): PlayerInput? {
-        if (length < 25) return null
+        if (length < CLIENT_INPUT_PACKET_BYTES || length > bytes.size) return null
         val buf = ByteBuffer.wrap(bytes, 0, length)
         if (buf.get() != PACKET_CLIENT_INPUT) return null
         val seq = buf.int
@@ -103,18 +106,23 @@ object LanProtocol {
         val flags = buf.int
         val passCharge = buf.float
         val shootCharge = buf.float
+        if (!moveX.isFinite() || !moveY.isFinite() ||
+            !passCharge.isFinite() || !shootCharge.isFinite()
+        ) {
+            return null
+        }
         return PlayerInput(
             seq = seq,
-            moveX = moveX,
-            moveY = moveY,
+            moveX = moveX.coerceIn(-1f, 1f),
+            moveY = moveY.coerceIn(-1f, 1f),
             sprint = (flags and 1) != 0,
             passPressed = (flags and 2) != 0,
             throughPressed = (flags and 4) != 0,
             shootPressed = (flags and 8) != 0,
             tacklePressed = (flags and 16) != 0,
             switchPressed = (flags and 32) != 0,
-            passCharge = passCharge,
-            shootCharge = shootCharge
+            passCharge = passCharge.coerceIn(0f, 1f),
+            shootCharge = shootCharge.coerceIn(0f, 1f)
         )
     }
 
@@ -144,7 +152,7 @@ object LanProtocol {
         players: List<NetPlayerState>
     ): ByteArray {
         val playerCount = players.size.coerceAtMost(22)
-        // Header: 1 + 4*10 + 8 + 4*7 + 2*10 + 4 = 101 bytes
+        // Header: 99 bytes; player records are 25 bytes each.
         // Per player: 6 floats (x, z, yaw, stamina, animTime, diveDir) + 1 byte anim = 25 bytes * 22 = 550 bytes
         // Total ~ 655 bytes
         val buf = ByteBuffer.allocate(128 + playerCount * 25)
@@ -195,7 +203,7 @@ object LanProtocol {
     }
 
     fun decodeWorldSnapshot(bytes: ByteArray, length: Int, receivedAtMs: Long = System.currentTimeMillis()): DecodedWorldSnapshot? {
-        if (length < 100) return null
+        if (length < WORLD_SNAPSHOT_HEADER_BYTES || length > bytes.size) return null
         val buf = ByteBuffer.wrap(bytes, 0, length)
         if (buf.get() != PACKET_WORLD_SNAPSHOT) return null
         val seq = buf.int
@@ -216,26 +224,32 @@ object LanProtocol {
         val ballVz = buf.float
         val ballOwner = buf.int
 
+        if (!elapsedSec.isFinite() || !ballX.isFinite() || !ballY.isFinite() ||
+            !ballZ.isFinite() || !ballVx.isFinite() || !ballVy.isFinite() || !ballVz.isFinite()
+        ) {
+            return null
+        }
+
         val homePossPct = buf.short.toInt().coerceIn(0, 100)
         val stats = MatchStats(
             homePossessionTicks = homePossPct,
             awayPossessionTicks = (100 - homePossPct).coerceAtLeast(0),
-            homeShots = buf.short.toInt(),
-            awayShots = buf.short.toInt(),
-            homeShotsOnTarget = buf.short.toInt(),
-            awayShotsOnTarget = buf.short.toInt(),
-            homePasses = buf.short.toInt(),
-            awayPasses = buf.short.toInt(),
-            homeTackles = buf.short.toInt(),
-            awayTackles = buf.short.toInt(),
-            homeFouls = buf.short.toInt(),
-            awayFouls = buf.short.toInt()
+            homeShots = buf.short.toInt().coerceAtLeast(0),
+            awayShots = buf.short.toInt().coerceAtLeast(0),
+            homeShotsOnTarget = buf.short.toInt().coerceAtLeast(0),
+            awayShotsOnTarget = buf.short.toInt().coerceAtLeast(0),
+            homePasses = buf.short.toInt().coerceAtLeast(0),
+            awayPasses = buf.short.toInt().coerceAtLeast(0),
+            homeTackles = buf.short.toInt().coerceAtLeast(0),
+            awayTackles = buf.short.toInt().coerceAtLeast(0),
+            homeFouls = buf.short.toInt().coerceAtLeast(0),
+            awayFouls = buf.short.toInt().coerceAtLeast(0)
         )
 
-        val count = buf.int.coerceIn(0, 22)
+        val count = buf.int
+        if (count !in 0..22 || buf.remaining() < count * WORLD_SNAPSHOT_PLAYER_BYTES) return null
         val players = ArrayList<NetPlayerState>(count)
         for (i in 0 until count) {
-            if (buf.remaining() < 25) break
             val x = buf.float
             val z = buf.float
             val yaw = buf.float
@@ -243,6 +257,11 @@ object LanProtocol {
             val animTime = buf.float
             val diveDir = buf.float
             val animState = AnimState.fromCode(buf.get().toInt())
+            if (!x.isFinite() || !z.isFinite() || !yaw.isFinite() ||
+                !stamina.isFinite() || !animTime.isFinite() || !diveDir.isFinite()
+            ) {
+                return null
+            }
             players.add(NetPlayerState(x, z, yaw, stamina, animState, animTime, diveDir))
         }
         return DecodedWorldSnapshot(
