@@ -42,7 +42,7 @@ class FootballAiController {
         isSecondaryPresser: Boolean
     ): AiActionDecision {
         if (player.role == PlayerRole.GK) {
-            return computeGoalkeeperDecision(player, ball, attackDir, difficulty)
+            return computeGoalkeeperDecision(player, allPlayers, ball, attackDir, difficulty)
         }
 
         val ownsBall = ball.ownerId == player.id
@@ -54,14 +54,14 @@ class FootballAiController {
         val distToBall = hypot(ball.x - player.x, ball.z - player.z)
 
         // If this player is the designated closest chaser or loose-ball challenger
-        if (isClosestChaser || (!teamHasBall && distToBall < 7.5f)) {
-            val leadT = min(0.45f, distToBall / 14f)
-            val targetX = (ball.x + ball.vx * leadT).coerceIn(-PitchConstants.HALF_LENGTH + 1f, PitchConstants.HALF_LENGTH - 1f)
-            val targetZ = (ball.z + ball.vz * leadT).coerceIn(-PitchConstants.HALF_WIDTH + 1f, PitchConstants.HALF_WIDTH - 1f)
+        if (isClosestChaser || (isSecondaryPresser && !teamHasBall) || (!teamHasBall && distToBall < 7.5f)) {
+            val leadT = min(0.45f, distToBall / 14f); val jockeyMode = isSecondaryPresser && !isClosestChaser && !teamHasBall && ball.ownerId != -1; val ownGoalX = -PitchConstants.HALF_LENGTH * attackDir; val gd = hypot(ownGoalX - ball.x, -ball.z).coerceAtLeast(0.001f)
+            val targetX = (if (jockeyMode) ball.x + ((ownGoalX - ball.x) / gd) * 3.8f else ball.x + ball.vx * leadT).coerceIn(-PitchConstants.HALF_LENGTH + 1f, PitchConstants.HALF_LENGTH - 1f)
+            val targetZ = (if (jockeyMode) ball.z + (-ball.z / gd) * 3.8f else ball.z + ball.vz * leadT).coerceIn(-PitchConstants.HALF_WIDTH + 1f, PitchConstants.HALF_WIDTH - 1f)
             val dx = targetX - player.x
             val dz = targetZ - player.z
             val d = hypot(dx, dz).coerceAtLeast(0.001f)
-            val shouldTackle = !teamHasBall && ball.ownerId != -1 && distToBall < 1.85f &&
+            val shouldTackle = !teamHasBall && ball.ownerId != -1 && distToBall < 1.55f && ((cos(player.facingYaw) * (ball.x - player.x) + sin(player.facingYaw) * (ball.z - player.z)) / distToBall.coerceAtLeast(0.001f)) > 0.55f &&
                 player.actionCooldown <= 0f && (!isTeamHumanControlled || isSecondaryPresser)
             return AiActionDecision(
                 moveX = dx / d,
@@ -222,14 +222,14 @@ class FootballAiController {
     }
 
     private fun computeGoalkeeperDecision(
-        gk: PlayerEntity,
+        gk: PlayerEntity, allPlayers: List<PlayerEntity>,
         ball: BallState,
         attackDir: Float,
         difficulty: AiDifficulty
     ): AiActionDecision {
         val ownGoalX = -PitchConstants.HALF_LENGTH * attackDir
         // If GK owns the ball, clear/pass forward immediately
-        if (ball.ownerId == gk.id && gk.actionCooldown <= 0f) {
+        if (ball.ownerId == gk.id && gk.actionCooldown <= 0f) { val openMate = allPlayers.filter { it.id != gk.id && it.side == gk.side && (it.role == PlayerRole.DF || it.role == PlayerRole.MF) && hypot(it.x - gk.x, it.z - gk.z) <= 28f && allPlayers.none { opp -> opp.side != gk.side && hypot(opp.x - it.x, opp.z - it.z) < 6.5f } }.minByOrNull { hypot(it.x - gk.x, it.z - gk.z) }; if (openMate != null) { val mdx = openMate.x - gk.x; val mdz = openMate.z - gk.z; val md = hypot(mdx, mdz).coerceAtLeast(0.001f); return AiActionDecision(wantPass = true, kickPower = (md / 36f).coerceIn(0.28f, 0.52f), aimX = mdx / md, aimZ = mdz / md) }
             val aimZ = if (gk.z >= 0f) -0.35f else 0.35f
             val n = hypot(attackDir, aimZ)
             return AiActionDecision(
