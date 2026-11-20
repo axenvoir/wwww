@@ -128,12 +128,13 @@ class PlayerSkeletalAnimator {
     private val tgtRx = FloatArray(SkeletonRig.BONE_COUNT)
     private val tgtRy = FloatArray(SkeletonRig.BONE_COUNT)
     private val tgtRz = FloatArray(SkeletonRig.BONE_COUNT)
-
+    private val targetQuats = FloatArray(SkeletonRig.BONE_COUNT * 4)
+   private val inertializer = PoseInertializer(SkeletonRig.BONE_COUNT)
     // Pre-allocated matrix buffers for FK hierarchy & GPU uniform upload
     private val localMat = FloatArray(16)
     private val worldMats = FloatArray(SkeletonRig.BONE_COUNT * 16)
     val skinMatrices = FloatArray(SkeletonRig.BONE_COUNT * 16)
-
+private val ikAngles = FloatArray(2)
     private var initialized = false
     private var lastState = AnimState.IDLE
     private var kickLocalTime = 0f
@@ -242,9 +243,10 @@ class PlayerSkeletalAnimator {
                 tgtRy[SkeletonRig.CHEST] = -16f * swing
                 tgtRx[SkeletonRig.HEAD] = 10f
 
-                // Planted left leg slightly flexed
-                tgtRx[SkeletonRig.L_THIGH] = 18f
-                tgtRx[SkeletonRig.L_SHIN] = 26f
+                // Planted left leg slightly flexed (IK)
+                TwoBoneIkSolver.solveSagittalLegDeg(-0.79f, 0.08f, outAngles = ikAngles)
+                tgtRx[SkeletonRig.L_THIGH] = ikAngles[0] // 18f
+                tgtRx[SkeletonRig.L_SHIN] = ikAngles[1] // 26f
                 tgtRx[SkeletonRig.L_FOOT] = -10f
 
                 // Striking right leg
@@ -340,8 +342,19 @@ class PlayerSkeletalAnimator {
 
                 tgtRx[SkeletonRig.R_THIGH] = rThigh
                 tgtRx[SkeletonRig.R_SHIN] = rKnee
+                                val lLock = TwoBoneIkSolver.footLockBlendWeight(animTime)
                 tgtRx[SkeletonRig.R_FOOT] = -rKnee * 0.28f - s * 14f * intensity
-
+                if (lLock > 0.001f) {
+                    TwoBoneIkSolver.solveSagittalLegDeg(-0.79f, -0.16f * c * intensity, outAngles = ikAngles)
+                    tgtRx[SkeletonRig.L_THIGH] = lThigh + (ikAngles[0] - lThigh) * lLock
+                    tgtRx[SkeletonRig.L_SHIN] = lKnee + (ikAngles[1] - lKnee) * lLock
+                }
+                val rLock = TwoBoneIkSolver.footLockBlendWeight(animTime + 3.1415927f)
+                if (rLock > 0.001f) {
+                    TwoBoneIkSolver.solveSagittalLegDeg(-0.79f, 0.16f * c * intensity, outAngles = ikAngles)
+                    tgtRx[SkeletonRig.R_THIGH] = rThigh + (ikAngles[0] - rThigh) * rLock
+                    tgtRx[SkeletonRig.R_SHIN] = rKnee + (ikAngles[1] - rKnee) * rLock
+                }
                 // Opposite athletic arm drive with bent elbows
                 val armSwing = (18f + 44f * intensity) * if (isDribbling) 0.78f else 1.0f
                 val armOut = (if (isDribbling) 22f else (10f + 6f * intensity)) +
@@ -388,33 +401,21 @@ class PlayerSkeletalAnimator {
             }
         }
         tgtRy[SkeletonRig.HEAD] += headLookYawDeg.coerceIn(-38f, 38f)
-
-        // Smooth cross-fade blend from current pose to target pose
-        val blendSpeed = when (state) {
-            AnimState.KICK, AnimState.TACKLE, AnimState.GK_DIVE -> 18.0f
-            else -> 11.0f
-        }
-        val alpha = if (!initialized) 1.0f else (blendSpeed * dt).coerceIn(0.05f, 1.0f)
-        initialized = true
-
-        curPelvisDeltaY += (tgtPelvisY - curPelvisDeltaY) * alpha
-        curPelvisDeltaZ += (tgtPelvisZ - curPelvisDeltaZ) * alpha
         for (i in 0 until SkeletonRig.BONE_COUNT) {
-            curRx[i] += (tgtRx[i] - curRx[i]) * alpha
-            curRy[i] += (tgtRy[i] - curRy[i]) * alpha
-            curRz[i] += (tgtRz[i] - curRz[i]) * alpha
+            QuaternionMath.fromEulerYzxDeg(tgtRx[i], tgtRy[i], tgtRz[i], targetQuats, i * 4)
+}
+        val halfLife = when (state) {
+            AnimState.KICK, AnimState.TACKLE, AnimState.GK_DIVE -> 0.045f
+            else -> 0.085f
         }
-
+        inertializer.step(targetQuats, tgtPelvisY, tgtPelvisZ, halfLife, dt)
+        
         // Hierarchical Forward Kinematics -> GPU Skinning Palette
         for (i in 0 until SkeletonRig.BONE_COUNT) {
-            Matrix.setIdentityM(localMat, 0)
             val tx = SkeletonRig.localOffsetX[i]
-            val ty = SkeletonRig.localOffsetY[i] + if (i == SkeletonRig.PELVIS) curPelvisDeltaY else 0f
-            val tz = SkeletonRig.localOffsetZ[i] + if (i == SkeletonRig.PELVIS) curPelvisDeltaZ else 0f
-            Matrix.translateM(localMat, 0, tx, ty, tz)
-            if (curRy[i] != 0f) Matrix.rotateM(localMat, 0, curRy[i], 0f, 1f, 0f)
-            if (curRz[i] != 0f) Matrix.rotateM(localMat, 0, curRz[i], 0f, 0f, 1f)
-            if (curRx[i] != 0f) Matrix.rotateM(localMat, 0, curRx[i], 1f, 0f, 0f)
+            val ty = SkeletonRig.localOffsetY[i] + if (i == SkeletonRig.PELVIS) inertializer.pelvisY else 0f
+            val tz = SkeletonRig.localOffsetZ[i] + if (i == SkeletonRig.PELVIS) inertializer.pelvisZ else 0f
+            QuaternionMath.toTrsMatrix4x4(tx, ty, tz, inertializer.currentQuats, i * 4, localMat, 0)            
 
             val parent = SkeletonRig.parentIndex[i]
             val dstOff = i * 16
