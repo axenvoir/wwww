@@ -153,12 +153,30 @@ object QuaternionMath {
     }
 
     fun angleBetweenRad(a: FloatArray, aOff: Int, b: FloatArray, bOff: Int): Float {
-       /*  val dot = abs(
-            a[aOff] * b[bOff] +
-                a[aOff + 1] * b[bOff + 1] +
-                a[aOff + 2] * b[bOff + 2] +
-                a[aOff + 3] * b[bOff + 3]
-        ).coerceIn(0f, 1f)
-       */ val ax = a[aOff]; val ay = a[aOff + 1]; val az = a[aOff + 2]; val aw = a[aOff + 3]; var bx = b[bOff]; var by = b[bOff + 1]; var bz = b[bOff + 2]; var bw = b[bOff + 3]; if (ax * bx + ay * by + az * bz + aw * bw < 0f) { bx = -bx; by = -by; bz = -bz; bw = -bw } val dx = ax - bx; val dy = ay - by; val dz = az - bz; val dw = aw - bw; val sx = ax + bx; val sy = ay + by; val sz = az + bz; val sw = aw + bw; return 4f * atan2(sqrt(dx * dx + dy * dy + dz * dz + dw * dw), sqrt(sx * sx + sy * sy + sz * sz + sw * sw)) //  return 2f * acos(dot)
+        val ax = a[aOff]
+        val ay = a[aOff + 1]
+        val az = a[aOff + 2]
+        val aw = a[aOff + 3]
+        var bx = b[bOff]
+        var by = b[bOff + 1]
+        var bz = b[bOff + 2]
+        var bw = b[bOff + 3]
+        if (ax * bx + ay * by + az * bz + aw * bw < 0f) {
+            bx = -bx
+            by = -by
+            bz = -bz
+            bw = -bw
+        }
+        val dx = ax - bx
+        val dy = ay - by
+        val dz = az - bz
+        val dw = aw - bw
+        val sx = ax + bx
+        val sy = ay + by
+        val sz = az + bz
+        val sw = aw + bw
+        val diffNorm = sqrt(dx * dx + dy * dy + dz * dz + dw * dw)
+        val sumNorm = sqrt(sx * sx + sy * sy + sz * sz + sw * sw)
+        return 4f * atan2(diffNorm, sumNorm)
     }
 }
