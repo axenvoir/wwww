@@ -69,12 +69,14 @@ object GameplayRealismTuning {
         val dx = targetX - playerX
         val dz = targetZ - playerZ
         if (dx * dx + dz * dz < 0.04f) return 0f
-        val desiredYaw = kotlin.math.atan2(dx.toDouble(), dz.toDouble()).toFloat()
+        // The simulation uses yaw 0 for +X and positive yaw toward +Z.
+        val desiredYaw = kotlin.math.atan2(dz.toDouble(), dx.toDouble()).toFloat()
         val relRad = normalizeAngleRad(desiredYaw - facingYawRad)
         return (relRad * (180f / PI.toFloat())).coerceIn(-38f, 38f)
     }
 
     fun normalizeAngleRad(angle: Float): Float {
+        if (!angle.isFinite()) return 0f
         var a = angle
         val twoPi = (2.0 * PI).toFloat()
         while (a > PI.toFloat()) a -= twoPi

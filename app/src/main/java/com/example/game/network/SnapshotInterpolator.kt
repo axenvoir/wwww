@@ -171,6 +171,9 @@ class SnapshotInterpolator {
         // Find pair (prev, next) bracketing renderTimeMs
         var prev: DecodedWorldSnapshot = snapshotRing.first()
         var next: DecodedWorldSnapshot = snapshotRing.last()
+        if (renderTimeMs <= prev.receivedAtMs) {
+            return applyLocalPredictionOverride(prev)
+        }
         var foundBracket = false
         for (i in 0 until snapshotRing.size - 1) {
             val a = snapshotRing[i]

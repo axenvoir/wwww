@@ -74,12 +74,12 @@ class LanMultiplayerManager(
     val interpolator = SnapshotInterpolator()
 
     private var multicastLock: WifiManager.MulticastLock? = null
-    private var serverSocket: ServerSocket? = null
-    private var tcpSocket: Socket? = null
-    private var tcpWriter: PrintWriter? = null
+    @Volatile private var serverSocket: ServerSocket? = null
+    @Volatile private var tcpSocket: Socket? = null
+    @Volatile private var tcpWriter: PrintWriter? = null
     private var udpDiscoverySocket: DatagramSocket? = null
-    private var udpGameSocket: DatagramSocket? = null
-    private var peerAddress: InetAddress? = null
+    @Volatile private var udpGameSocket: DatagramSocket? = null
+    @Volatile private var peerAddress: InetAddress? = null
     private var lastConnectedHostIp: String = ""
     private var lastConnectedHostPort: Int = LanProtocol.PORT_TCP_LOBBY
 
@@ -89,11 +89,13 @@ class LanMultiplayerManager(
     private var udpRecvJob: Job? = null
     private var udpSendJob: Job? = null
 
-    private var activeSimulation: FootballSimulation? = null
-    private var activeInputProvider: (() -> PlayerInput)? = null
+    @Volatile private var activeSimulation: FootballSimulation? = null
+    @Volatile private var activeInputProvider: (() -> PlayerInput)? = null
 
+    @Volatile
     private var currentLobbyConfig = MatchConfig(isLanMultiplayer = true)
     private var lastPingSentMs = 0L
+    @Volatile
     private var lastAckedClientInputSeq = 0
     private var worldSeqCounter = 0
 
@@ -486,27 +488,27 @@ class LanMultiplayerManager(
                 runCatching {
                     if (isHost) {
                         worldSeqCounter++
-                        val players = simulation.exportNetworkPlayers()
+                        val world = simulation.captureNetworkWorldState()
                         val data = LanProtocol.encodeWorldSnapshot(
                             seq = worldSeqCounter,
                             lastAckedClientInputSeq = lastAckedClientInputSeq,
                             serverTimeMs = System.currentTimeMillis(),
-                            homeGoals = simulation.homeScore,
-                            awayGoals = simulation.awayScore,
-                            elapsedSec = simulation.matchElapsedRealSeconds,
-                            half = simulation.half,
-                            phase = simulation.phase,
-                            activeHomeId = simulation.activeHomePlayerId,
-                            activeAwayId = simulation.activeAwayPlayerId,
-                            ballX = simulation.ball.x,
-                            ballY = simulation.ball.y,
-                            ballZ = simulation.ball.z,
-                            ballVx = simulation.ball.vx,
-                            ballVy = simulation.ball.vy,
-                            ballVz = simulation.ball.vz,
-                            ballOwner = simulation.ball.ownerId,
-                            stats = simulation.currentStats,
-                            players = players
+                            homeGoals = world.homeGoals,
+                            awayGoals = world.awayGoals,
+                            elapsedSec = world.elapsedSec,
+                            half = world.half,
+                            phase = world.phase,
+                            activeHomeId = world.activeHomeId,
+                            activeAwayId = world.activeAwayId,
+                            ballX = world.ballX,
+                            ballY = world.ballY,
+                            ballZ = world.ballZ,
+                            ballVx = world.ballVx,
+                            ballVy = world.ballVy,
+                            ballVz = world.ballVz,
+                            ballOwner = world.ballOwner,
+                            stats = world.stats,
+                            players = world.players
                         )
                         sock.send(DatagramPacket(data, data.size, targetPeer, remoteUdpPort))
                     } else {

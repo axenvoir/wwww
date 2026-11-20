@@ -306,7 +306,9 @@ class PlayerSkeletalAnimator {
                 }
                 val dribbleMod = if (isDribbling) 0.82f else 1.0f
                 val strideDeg = (18f + 44f * intensity) * dribbleMod
-                val forwardLean = (4f + 14f * intensity) + if (isDribbling) 5f else 0f - if (isDecelerating) 4f else 0f
+                val forwardLean = (4f + 14f * intensity) +
+                    (if (isDribbling) 5f else 0f) -
+                    (if (isDecelerating) 4f else 0f)
                 val bankDeg = GameplayRealismTuning.lateralBankDegrees(yawVelocityRad, intensity)
 
                 // Vertical running bounce (double frequency: peaks mid-flight)
@@ -342,7 +344,8 @@ class PlayerSkeletalAnimator {
 
                 // Opposite athletic arm drive with bent elbows
                 val armSwing = (18f + 44f * intensity) * if (isDribbling) 0.78f else 1.0f
-                val armOut = if (isDribbling) 22f else (10f + 6f * intensity) + if (isDecelerating) 8f else 0f
+                val armOut = (if (isDribbling) 22f else (10f + 6f * intensity)) +
+                    (if (isDecelerating) 8f else 0f)
                 val elbowFlex = -(28f + 58f * intensity)
 
                 tgtRx[SkeletonRig.L_UPPER_ARM] = -s * armSwing
@@ -357,7 +360,7 @@ class PlayerSkeletalAnimator {
             else -> {
                 // Athletic IDLE stance: subtle breathing, poised slightly bent knees, relaxed arms
                 val breath = sin(animTime * 0.9f)
-               val fatigue = if (stamina < 0.35f) (0.35f - stamina) / 0.35f else 0f
+                val fatigue = if (stamina < 0.35f) (0.35f - stamina) / 0.35f else 0f
                 tgtPelvisY = -0.025f + breath * 0.008f
                 tgtRx[SkeletonRig.PELVIS] = 3f + fatigue * 4f
                 tgtRx[SkeletonRig.SPINE] = 3f + breath * 1.2f + breath * fatigue * 1.5f + fatigue * 5f
@@ -384,8 +387,8 @@ class PlayerSkeletalAnimator {
                 tgtRx[SkeletonRig.R_FOREARM] = -24f
             }
         }
-            tgtRy[SkeletonRig.HEAD] += headLookYawDeg.coerceIn(-38f, 38f)
-            
+        tgtRy[SkeletonRig.HEAD] += headLookYawDeg.coerceIn(-38f, 38f)
+
         // Smooth cross-fade blend from current pose to target pose
         val blendSpeed = when (state) {
             AnimState.KICK, AnimState.TACKLE, AnimState.GK_DIVE -> 18.0f
