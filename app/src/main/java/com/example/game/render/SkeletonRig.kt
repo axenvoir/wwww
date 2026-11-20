@@ -1,6 +1,7 @@
 package com.example.game.render
 
 import android.opengl.Matrix
+import com.example.game.engine.GameplayRealismTuning
 import com.example.game.model.AnimState
 import kotlin.math.PI
 import kotlin.math.abs
@@ -148,7 +149,11 @@ class PlayerSkeletalAnimator {
         playerY: Float,
         isDribbling: Boolean,
         diveDir: Float,
-        dt: Float
+        dt: Float,
+        yawVelocityRad: Float = 0f,
+        stamina: Float = 1f,
+        headLookYawDeg: Float = 0f,
+        isDecelerating: Boolean = false
     ) {
         if (state == AnimState.KICK) {
             if (lastState != AnimState.KICK) kickLocalTime = 0f
@@ -301,17 +306,22 @@ class PlayerSkeletalAnimator {
                 }
                 val dribbleMod = if (isDribbling) 0.82f else 1.0f
                 val strideDeg = (18f + 44f * intensity) * dribbleMod
-                val forwardLean = (4f + 14f * intensity) + if (isDribbling) 5f else 0f
+                val forwardLean = (4f + 14f * intensity) +
+                    (if (isDribbling) 5f else 0f) -
+                    (if (isDecelerating) 4f else 0f)
+                val bankDeg = GameplayRealismTuning.lateralBankDegrees(yawVelocityRad, intensity)
 
                 // Vertical running bounce (double frequency: peaks mid-flight)
                 tgtPelvisY = abs(s) * (0.015f + 0.068f * intensity) - if (isDribbling) 0.045f else 0.02f
                 tgtRx[SkeletonRig.PELVIS] = forwardLean * 0.45f
                 tgtRy[SkeletonRig.PELVIS] = -s * (5f + 8f * intensity)
-                tgtRz[SkeletonRig.PELVIS] = c * 3.5f * intensity
+                tgtRz[SkeletonRig.PELVIS] = c * 3.5f * intensity + 0.5f * bankDeg
 
                 tgtRx[SkeletonRig.SPINE] = forwardLean * 0.35f
-                tgtRy[SkeletonRig.SPINE] = s * (6f + 7f * intensity)
-                tgtRx[SkeletonRig.CHEST] = forwardLean * 0.25f
+                tgtRy[SkeletonRig.SPINE] = s * (6f + 7f * intensity) 
+                tgtRz[SkeletonRig.SPINE] = 0.3f * bankDeg
+                tgtRx[SkeletonRig.CHEST] = forwardLean * 0.25f 
+                tgtRz[SkeletonRig.CHEST] = 0.2f * bankDeg
                 tgtRy[SkeletonRig.CHEST] = s * (7f + 8f * intensity)
                 // Head stays level looking ahead / at ball
                 tgtRx[SkeletonRig.HEAD] = -forwardLean * 0.65f + if (isDribbling) 12f else 0f
@@ -334,7 +344,8 @@ class PlayerSkeletalAnimator {
 
                 // Opposite athletic arm drive with bent elbows
                 val armSwing = (18f + 44f * intensity) * if (isDribbling) 0.78f else 1.0f
-                val armOut = if (isDribbling) 22f else (10f + 6f * intensity)
+                val armOut = (if (isDribbling) 22f else (10f + 6f * intensity)) +
+                    (if (isDecelerating) 8f else 0f)
                 val elbowFlex = -(28f + 58f * intensity)
 
                 tgtRx[SkeletonRig.L_UPPER_ARM] = -s * armSwing
@@ -349,10 +360,11 @@ class PlayerSkeletalAnimator {
             else -> {
                 // Athletic IDLE stance: subtle breathing, poised slightly bent knees, relaxed arms
                 val breath = sin(animTime * 0.9f)
+                val fatigue = if (stamina < 0.35f) (0.35f - stamina) / 0.35f else 0f
                 tgtPelvisY = -0.025f + breath * 0.008f
-                tgtRx[SkeletonRig.PELVIS] = 3f
-                tgtRx[SkeletonRig.SPINE] = 3f + breath * 1.2f
-                tgtRx[SkeletonRig.CHEST] = 2f
+                tgtRx[SkeletonRig.PELVIS] = 3f + fatigue * 4f
+                tgtRx[SkeletonRig.SPINE] = 3f + breath * 1.2f + breath * fatigue * 1.5f + fatigue * 5f
+                tgtRx[SkeletonRig.CHEST] = 2f + fatigue * 4f
                 tgtRx[SkeletonRig.HEAD] = -4f
                 tgtRy[SkeletonRig.HEAD] = cos(animTime * 0.5f) * 6f
 
@@ -366,15 +378,16 @@ class PlayerSkeletalAnimator {
                 tgtRx[SkeletonRig.R_SHIN] = 12f
                 tgtRx[SkeletonRig.R_FOOT] = -6f
 
-                tgtRx[SkeletonRig.L_UPPER_ARM] = 6f + breath * 2f
+                tgtRx[SkeletonRig.L_UPPER_ARM] = 6f + breath * 2f + breath * fatigue * 2f + fatigue * 6f
                 tgtRz[SkeletonRig.L_UPPER_ARM] = 14f
                 tgtRx[SkeletonRig.L_FOREARM] = -24f
 
-                tgtRx[SkeletonRig.R_UPPER_ARM] = 6f - breath * 2f
+                tgtRx[SkeletonRig.R_UPPER_ARM] = 6f - breath * 2f - breath * fatigue * 2f + fatigue * 6f
                 tgtRz[SkeletonRig.R_UPPER_ARM] = -14f
                 tgtRx[SkeletonRig.R_FOREARM] = -24f
             }
         }
+        tgtRy[SkeletonRig.HEAD] += headLookYawDeg.coerceIn(-38f, 38f)
 
         // Smooth cross-fade blend from current pose to target pose
         val blendSpeed = when (state) {
