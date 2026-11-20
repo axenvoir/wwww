@@ -15,6 +15,8 @@ import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.sin
 import kotlin.math.sign
+import kotlin.math.cos
+import kotlin.math.sin
 
 data class AiActionDecision(
     val moveX: Float = 0f,
