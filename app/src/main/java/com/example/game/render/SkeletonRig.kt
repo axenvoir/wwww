@@ -134,7 +134,7 @@ class PlayerSkeletalAnimator {
     private val localMat = FloatArray(16)
     private val worldMats = FloatArray(SkeletonRig.BONE_COUNT * 16)
     val skinMatrices = FloatArray(SkeletonRig.BONE_COUNT * 16)
-
+private val ikAngles = FloatArray(2)
     private var initialized = false
     private var lastState = AnimState.IDLE
     private var kickLocalTime = 0f
@@ -243,9 +243,10 @@ class PlayerSkeletalAnimator {
                 tgtRy[SkeletonRig.CHEST] = -16f * swing
                 tgtRx[SkeletonRig.HEAD] = 10f
 
-                // Planted left leg slightly flexed
-                tgtRx[SkeletonRig.L_THIGH] = 18f
-                tgtRx[SkeletonRig.L_SHIN] = 26f
+                // Planted left leg slightly flexed (IK)
+                TwoBoneIkSolver.solveSagittalLegDeg(-0.79f, 0.08f, outAngles = ikAngles)
+                tgtRx[SkeletonRig.L_THIGH] = ikAngles[0] // 18f
+                tgtRx[SkeletonRig.L_SHIN] = ikAngles[1] // 26f
                 tgtRx[SkeletonRig.L_FOOT] = -10f
 
                 // Striking right leg
@@ -341,8 +342,19 @@ class PlayerSkeletalAnimator {
 
                 tgtRx[SkeletonRig.R_THIGH] = rThigh
                 tgtRx[SkeletonRig.R_SHIN] = rKnee
+                                val lLock = TwoBoneIkSolver.footLockBlendWeight(animTime)
                 tgtRx[SkeletonRig.R_FOOT] = -rKnee * 0.28f - s * 14f * intensity
-
+                if (lLock > 0.001f) {
+                    TwoBoneIkSolver.solveSagittalLegDeg(-0.79f, -0.16f * c * intensity, outAngles = ikAngles)
+                    tgtRx[SkeletonRig.L_THIGH] = lThigh + (ikAngles[0] - lThigh) * lLock
+                    tgtRx[SkeletonRig.L_SHIN] = lKnee + (ikAngles[1] - lKnee) * lLock
+                }
+                val rLock = TwoBoneIkSolver.footLockBlendWeight(animTime + 3.1415927f)
+                if (rLock > 0.001f) {
+                    TwoBoneIkSolver.solveSagittalLegDeg(-0.79f, 0.16f * c * intensity, outAngles = ikAngles)
+                    tgtRx[SkeletonRig.R_THIGH] = rThigh + (ikAngles[0] - rThigh) * rLock
+                    tgtRx[SkeletonRig.R_SHIN] = rKnee + (ikAngles[1] - rKnee) * rLock
+                }
                 // Opposite athletic arm drive with bent elbows
                 val armSwing = (18f + 44f * intensity) * if (isDribbling) 0.78f else 1.0f
                 val armOut = (if (isDribbling) 22f else (10f + 6f * intensity)) +
