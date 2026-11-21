@@ -36,33 +36,42 @@ class PostProcessPass {
                 return clamp((x * (a * x + b)) / (x * (c * x + d) + e), 0.0, 1.0);
             }
 
-            vec3 sampleBloom(vec2 uv) {
-                vec2 offsets[9] = vec2[9](
-                    vec2(-1.0, -1.0), vec2(0.0, -1.0), vec2(1.0, -1.0),
-                    vec2(-1.0,  0.0), vec2(0.0,  0.0), vec2(1.0,  0.0),
-                    vec2(-1.0,  1.0), vec2(0.0,  1.0), vec2(1.0,  1.0)
-                );
-                float weights[9] = float[9](
-                    0.075, 0.125, 0.075,
-                    0.125, 0.200, 0.125,
-                    0.075, 0.125, 0.075
-                );
-                vec3 bloom = vec3(0.0);
-                for (int i = 0; i < 9; i++) {
-                    vec3 c = texture(uSceneTex, uv + offsets[i] * uTexelSize * 2.0).rgb;
-                    float luma = dot(c, vec3(0.2126, 0.7152, 0.0722));
-                    float mask = smoothstep(0.75, 1.10, luma);
-                    bloom += c * mask * weights[i];
-                }
-                return bloom;
-            }
+           vec3 softKneeBloom(vec3 c) {
+                       float luma = dot(c, vec3(0.2126, 0.7152, 0.0722));
+            float threshold = 0.72;
+            float knee = 0.25;
+            float soft = clamp(luma - threshold + knee, 0.0, 2.0 * knee);
+            soft = (soft * soft) / (4.0 * knee + 0.0001);
+            float contrib = max(luma - threshold, soft) / max(luma, 0.0001);
+            return c * clamp(contrib, 0.0, 1.5);
+        }
 
-            void main() {
-                vec3 scene = texture(uSceneTex, vUv).rgb;
-                vec3 bloom = sampleBloom(vUv);
-                vec3 color = scene + bloom * uBloomStrength;
+        vec3 sampleBloom(vec2 uv) {
+            vec2 inner = uTexelSize * 2.0;
+            vec2 outer = uTexelSize * 4.8;
+            vec3 sum = softKneeBloom(texture(uSceneTex, uv).rgb) * 0.16;
+            sum += softKneeBloom(texture(uSceneTex, uv + vec2( inner.x,  0.0)).rgb) * 0.11;
+            sum += softKneeBloom(texture(uSceneTex, uv + vec2(-inner.x,  0.0)).rgb) * 0.11;
+            sum += softKneeBloom(texture(uSceneTex, uv + vec2( 0.0,  inner.y)).rgb) * 0.11;
+            sum += softKneeBloom(texture(uSceneTex, uv + vec2( 0.0, -inner.y)).rgb) * 0.11;
+            sum += softKneeBloom(texture(uSceneTex, uv + vec2( outer.x,  0.0)).rgb) * 0.05;
+            sum += softKneeBloom(texture(uSceneTex, uv + vec2(-outer.x,  0.0)).rgb) * 0.05;
+            sum += softKneeBloom(texture(uSceneTex, uv + vec2( 0.0,  outer.y)).rgb) * 0.05;
+            sum += softKneeBloom(texture(uSceneTex, uv + vec2( 0.0, -outer.y)).rgb) * 0.05;
+            sum += softKneeBloom(texture(uSceneTex, uv + vec2( outer.x * 0.707,  outer.y * 0.707)).rgb) * 0.05;
+            sum += softKneeBloom(texture(uSceneTex, uv + vec2(-outer.x * 0.707,  outer.y * 0.707)).rgb) * 0.05;
+            sum += softKneeBloom(texture(uSceneTex, uv + vec2( outer.x * 0.707, -outer.y * 0.707)).rgb) * 0.05;
+            sum += softKneeBloom(texture(uSceneTex, uv + vec2(-outer.x * 0.707, -outer.y * 0.707)).rgb) * 0.05;
+            return sum;
+        }
 
-                color = acesToneMap(color);
+        void main() {
+            vec3 scene = texture(uSceneTex, vUv).rgb;
+            vec3 bloom = sampleBloom(vUv);
+            vec3 color = scene + bloom * uBloomStrength;
+            // Soft highlight rolloff without double ACES darkening
+            color = color / (vec3(1.0) + max(color - vec3(1.0), vec3(0.0)) * 0.45);
+           
 
                 // Broadcast contrast and saturation balance
                 color = clamp((color - 0.5) * 1.06 + 0.5, 0.0, 1.0);
