@@ -87,6 +87,11 @@ private val fallbackController = GraphicsFallbackController()
 private val postProcessPass = PostProcessPass(); private val shadowMapPass = ShadowMapPass(); private var shadowMapActiveThisFrame = false
     private var pitchPbrProgram = 0
 private var skinnedPbrProgram = 0
+    private var skinnedDqsProgram = 0
+    private val dqsPalette = DualQuaternionPalette(SkeletonRig.BONE_COUNT)
+    private var skinnedDqsLocations: SkinnedPbrLocations? = null
+    private var uSkinnedDqsBoneReal = -1
+    private var uSkinnedDqsBoneDual = -1
     private var ballPbrProgram = 0 
     private var pitchPbrLocations: PitchPbrLocations? = null
     private var skinnedPbrLocations: SkinnedPbrLocations? = null
@@ -251,6 +256,7 @@ private var activePipelineMode = GraphicsPipelineMode.CLASSIC
         texturedProgram = StadiumShaders.linkProgram(StadiumShaders.TEXTURED_VERTEX, StadiumShaders.TEXTURED_FRAGMENT)
         entityProgram = StadiumShaders.linkProgram(StadiumShaders.ENTITY_VERTEX, StadiumShaders.ENTITY_FRAGMENT)
         pitchPbrProgram = SafeShaderCompiler.buildProgramOrZero(StadiumShaders.PITCH_VERTEX, RealisticPbrShaders.PITCH_PBR_FRAGMENT)
+        skinnedDqsProgram = SafeShaderCompiler.buildProgramOrZero(RealisticPbrShaders.SKINNED_PLAYER_DQS_VERTEX, RealisticPbrShaders.SKINNED_PLAYER_PBR_FRAGMENT)
         skinnedPbrProgram = SafeShaderCompiler.buildProgramOrZero(StadiumShaders.SKINNED_PLAYER_VERTEX, RealisticPbrShaders.SKINNED_PLAYER_PBR_FRAGMENT)
         if (pitchPbrProgram == 0 || skinnedPbrProgram == 0) {
             fallbackController.reportShaderFailure("PBR shader compile/link failed")
@@ -352,6 +358,27 @@ private var activePipelineMode = GraphicsPipelineMode.CLASSIC
             )
         }
 
+        if (skinnedDqsProgram != 0) {
+            skinnedDqsLocations = SkinnedPbrLocations(
+                vp = GLES30.glGetUniformLocation(skinnedDqsProgram, "uVpMatrix"),
+                model = GLES30.glGetUniformLocation(skinnedDqsProgram, "uModelMatrix"),
+                bones = -1,
+                kitAtlas = GLES30.glGetUniformLocation(skinnedDqsProgram, "uKitAtlas"),
+                skinColor = GLES30.glGetUniformLocation(skinnedDqsProgram, "uSkinColor"),
+                hairColor = GLES30.glGetUniformLocation(skinnedDqsProgram, "uHairColor"),
+                bootColor = GLES30.glGetUniformLocation(skinnedDqsProgram, "uBootColor"),
+                gloveColor = GLES30.glGetUniformLocation(skinnedDqsProgram, "uGloveColor"),
+                isGoalkeeper = GLES30.glGetUniformLocation(skinnedDqsProgram, "uIsGoalkeeper"),
+                sunDir = GLES30.glGetUniformLocation(skinnedDqsProgram, "uSunDir"),
+                sunColor = GLES30.glGetUniformLocation(skinnedDqsProgram, "uSunColor"),
+                ambient = GLES30.glGetUniformLocation(skinnedDqsProgram, "uAmbient"),
+                floodlight = GLES30.glGetUniformLocation(skinnedDqsProgram, "uFloodlight"),
+                cameraPos = GLES30.glGetUniformLocation(skinnedDqsProgram, "uCameraPos"),
+                skyColor = GLES30.glGetUniformLocation(skinnedDqsProgram, "uSkyColor")
+            )
+            uSkinnedDqsBoneReal = GLES30.glGetUniformLocation(skinnedDqsProgram, "uBoneDualReal")
+            uSkinnedDqsBoneDual = GLES30.glGetUniformLocation(skinnedDqsProgram, "uBoneDualDual")
+        }
         if (skinnedPbrProgram != 0) {
             skinnedPbrLocations = SkinnedPbrLocations(
                 vp = GLES30.glGetUniformLocation(skinnedPbrProgram, "uVpMatrix"),
@@ -757,9 +784,18 @@ val pbrNow = System.nanoTime()
         quality: GraphicsQuality,
         dt: Float
     ) {
+        val useDqs = activePipelineMode == GraphicsPipelineMode.REALISTIC_PBR && skinnedDqsProgram != 0
         val usePbr = activePipelineMode == GraphicsPipelineMode.REALISTIC_PBR && skinnedPbrProgram != 0
-        val prog = if (usePbr) skinnedPbrProgram else skinnedProgram
-        val pbr = if (usePbr) skinnedPbrLocations else null
+        val prog = when {
+            useDqs -> skinnedDqsProgram
+            usePbr -> skinnedPbrProgram
+            else -> skinnedProgram
+        }
+        val pbr = when {
+            useDqs -> skinnedDqsLocations
+            usePbr -> skinnedPbrLocations
+            else -> null
+        }
         GLES30.glUseProgram(prog)
         GLES30.glUniformMatrix4fv(pbr?.vp ?: uSkVp, 1, false, vpMatrix, 0)
         GLES30.glUniform3f(pbr?.sunDir ?: uSkSunDir, stadium.sunX, stadium.sunY, stadium.sunZ)
@@ -839,7 +875,13 @@ val pbrNow = System.nanoTime()
             Matrix.scaleM(modelMatrix, 0, widthScale, heightScale, widthScale)
 
             GLES30.glUniformMatrix4fv(pbr?.model ?: uSkModel, 1, false, modelMatrix, 0)
-            GLES30.glUniformMatrix4fv(pbr?.bones ?: uSkBones, SkeletonRig.BONE_COUNT, false, animator.skinMatrices, 0)
+            if (useDqs) {
+                dqsPalette.packFromSkinMatrices(animator.skinMatrices)
+                GLES30.glUniform4fv(uSkinnedDqsBoneReal, SkeletonRig.BONE_COUNT, dqsPalette.realQuats, 0)
+                GLES30.glUniform4fv(uSkinnedDqsBoneDual, SkeletonRig.BONE_COUNT, dqsPalette.dualQuats, 0)
+            } else {
+                GLES30.glUniformMatrix4fv(pbr?.bones ?: uSkBones, SkeletonRig.BONE_COUNT, false, animator.skinMatrices, 0)
+            }
 
             val skin = skinPalette[(p.skinToneIndex + p.id) % skinPalette.size]
             val hair = hairPalette[(p.hairToneIndex + p.shirtNumber) % hairPalette.size]
