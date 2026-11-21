@@ -209,4 +209,101 @@ class MatchAudioEngine {
         }
         return out
     }
+
+    @Volatile private var ambienceTrack: AudioTrack? = null
+    @Volatile private var ambienceVolume: Float = 0.24f
+
+    fun startStadiumAmbience() {
+        if (!isEnabled) return
+        if (ambienceTrack != null) return
+        runCatching {
+            val pcm = synthAmbientCrowdLoop(sampleRate)
+            val bufferBytes = pcm.size * 2
+            val track = AudioTrack.Builder()
+                .setAudioAttributes(
+                    AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_GAME)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                        .build()
+                )
+                .setAudioFormat(
+                    AudioFormat.Builder()
+                        .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                        .setSampleRate(sampleRate)
+                        .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
+                        .build()
+                )
+                .setTransferMode(AudioTrack.MODE_STATIC)
+                .setBufferSizeInBytes(bufferBytes)
+                .build()
+
+            track.write(pcm, 0, pcm.size)
+            track.setLoopPoints(0, pcm.size, -1)
+            track.setVolume(if (isEnabled) ambienceVolume else 0f)
+            track.play()
+            ambienceTrack = track
+        }.onFailure {
+            ambienceTrack = null
+        }
+    }
+
+    fun setAmbienceExcitement(excitement: Float) {
+        val clamped = excitement.coerceIn(0f, 1f)
+        val volume = 0.16f + (0.55f - 0.16f) * clamped
+        ambienceVolume = volume
+        if (!isEnabled) return
+        runCatching {
+            ambienceTrack?.setVolume(volume)
+        }
+    }
+
+    fun stopStadiumAmbience() {
+        val track = ambienceTrack ?: return
+        ambienceTrack = null
+        runCatching {
+            if (track.playState == AudioTrack.PLAYSTATE_PLAYING) {
+                track.stop()
+            }
+            track.release()
+        }
+    }
+
+    internal fun synthAmbientCrowdLoop(sampleRate: Int = 22050): ShortArray {
+        val durationSec = 3.5f
+        val n = (sampleRate * durationSec).toInt()
+        if (n <= 0) return ShortArray(0)
+        val fadeSamples = (sampleRate * 0.20f).toInt().coerceAtMost(n / 4)
+        val raw = FloatArray(n + fadeSamples)
+        val rng = Random(1337)
+        var b0 = 0f
+        var b1 = 0f
+        var b2 = 0f
+        var brown = 0f
+        for (i in 0 until raw.size) {
+            val white = rng.nextFloat() * 2f - 1f
+            b0 = 0.99765f * b0 + white * 0.0990460f
+            b1 = 0.96300f * b1 + white * 0.2965164f
+            b2 = 0.57000f * b2 + white * 1.0526913f
+            val pink = (b0 + b1 + b2 + white * 0.1848f) * 0.18f
+            brown = (brown + 0.02f * white) / 1.02f
+            val t = i.toFloat() / sampleRate
+            val phase1 = 2.0 * PI * 1.0 * ((i % n).toDouble() / n)
+            val phase2 = 2.0 * PI * 3.0 * ((i % n).toDouble() / n)
+            val murmur = 0.78f + 0.14f * sin(phase1).toFloat() + 0.08f * sin(phase2).toFloat()
+            val lowChant = 0.06f * sin(2.0 * PI * 110.0 * t).toFloat() * (0.5f + 0.5f * sin(phase2).toFloat())
+            raw[i] = (pink * 0.65f + brown * 1.35f) * murmur + lowChant
+        }
+        val out = ShortArray(n)
+        for (i in 0 until n) {
+            val sample = if (i < fadeSamples && fadeSamples > 0) {
+                val alpha = i.toFloat() / fadeSamples
+                raw[i] * alpha + raw[n + i] * (1f - alpha)
+            } else {
+                raw[i]
+            }
+            out[i] = (sample.coerceIn(-1f, 1f) * Short.MAX_VALUE * 0.45f).toInt().toShort()
+        }
+        return out
+    }
+}
 }
