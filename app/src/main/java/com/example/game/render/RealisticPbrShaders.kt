@@ -467,4 +467,75 @@ void main() {
     fragColor = vec4(color, 1.0);
 }
 """.trimIndent()
+
+    val SKINNED_PLAYER_DQS_VERTEX: String = """
+        #version 300 es
+        layout(location = 0) in vec3 aPosition;
+        layout(location = 1) in vec3 aNormal;
+        layout(location = 2) in vec2 aTexCoord;
+        layout(location = 3) in vec4 aJointIndices;
+        layout(location = 4) in vec4 aJointWeights;
+        layout(location = 5) in float aRegionId;
+
+        uniform mat4 uVpMatrix;
+        uniform mat4 uModelMatrix;
+        uniform vec4 uBoneDualReal[19];
+        uniform vec4 uBoneDualDual[19];
+
+        out vec3 vWorldPos;
+        out vec3 vWorldNormal;
+        out vec2 vTexCoord;
+        out float vRegionId;
+
+        void main() {
+            int j0 = clamp(int(aJointIndices.x + 0.5), 0, 18);
+            int j1 = clamp(int(aJointIndices.y + 0.5), 0, 18);
+            int j2 = clamp(int(aJointIndices.z + 0.5), 0, 18);
+            int j3 = clamp(int(aJointIndices.w + 0.5), 0, 18);
+
+            vec4 r0 = uBoneDualReal[j0];
+            vec4 d0 = uBoneDualDual[j0];
+            vec4 r1 = uBoneDualReal[j1];
+            vec4 d1 = uBoneDualDual[j1];
+            vec4 r2 = uBoneDualReal[j2];
+            vec4 d2 = uBoneDualDual[j2];
+            vec4 r3 = uBoneDualReal[j3];
+            vec4 d3 = uBoneDualDual[j3];
+
+            float s1 = (dot(r0, r1) < 0.0) ? -1.0 : 1.0;
+            float s2 = (dot(r0, r2) < 0.0) ? -1.0 : 1.0;
+            float s3 = (dot(r0, r3) < 0.0) ? -1.0 : 1.0;
+
+            vec4 blendR = r0 * aJointWeights.x
+                        + r1 * (aJointWeights.y * s1)
+                        + r2 * (aJointWeights.z * s2)
+                        + r3 * (aJointWeights.w * s3);
+
+            vec4 blendD = d0 * aJointWeights.x
+                        + d1 * (aJointWeights.y * s1)
+                        + d2 * (aJointWeights.z * s2)
+                        + d3 * (aJointWeights.w * s3);
+
+            float len = length(blendR);
+            if (len > 0.00001) {
+                float invLen = 1.0 / len;
+                blendR *= invLen;
+                blendD *= invLen;
+            } else {
+                blendR = vec4(0.0, 0.0, 0.0, 1.0);
+                blendD = vec4(0.0);
+            }
+
+            vec3 trans = 2.0 * (blendR.w * blendD.xyz - blendD.w * blendR.xyz + cross(blendR.xyz, blendD.xyz));
+            vec3 skinnedPos = aPosition + 2.0 * cross(blendR.xyz, cross(blendR.xyz, aPosition) + blendR.w * aPosition) + trans;
+            vec3 skinnedNorm = aNormal + 2.0 * cross(blendR.xyz, cross(blendR.xyz, aNormal) + blendR.w * aNormal);
+
+            vec4 worldPos = uModelMatrix * vec4(skinnedPos, 1.0);
+            vWorldPos = worldPos.xyz;
+            vWorldNormal = normalize(mat3(uModelMatrix) * normalize(skinnedNorm));
+            vTexCoord = aTexCoord;
+            vRegionId = aRegionId;
+            gl_Position = uVpMatrix * worldPos;
+        }
+    """.trimIndent()
 }
