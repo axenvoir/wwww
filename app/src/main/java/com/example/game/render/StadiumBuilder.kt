@@ -146,7 +146,102 @@ object StadiumBuilder {
             v.addBox(benchX, 0.45f, -38.9f, 6.4f, 0.42f, 0.55f, 0.12f, 0.14f, 0.18f)
         }
 
-        // === LOW SOUTH TOUCHLINE WALL (stays below the broadcast gantry camera) ===
+        // === LOW SOUTH TOUCHLINE WALL (stays below the broadcast gantry
+        // Segmented low South media wall panels, coping rail & broadcast desks
+        v.addBox(0f, 1.15f, 38.8f, 118.4f, 0.14f, 0.55f, 0.30f, 0.34f, 0.40f)
+        for (seg in -5..5) {
+            val sx = seg * 10.5f
+            val isAccent = (seg and 1) == 0
+            v.addBox(sx, 0.65f, 38.52f, 9.6f, 0.72f, 0.12f, if (isAccent) 0.12f else 0.16f, if (isAccent) 0.24f else 0.20f, if (isAccent) 0.48f else 0.28f)
+        }
+        for (desk in -2..2) {
+            val dx = desk * 22f
+            v.addBox(dx, 0.70f, 39.55f, 5.2f, 1.30f, 0.95f, 0.22f, 0.25f, 0.32f)
+            v.addBox(dx, 1.40f, 39.45f, 5.4f, 0.12f, 1.15f, 0.34f, 0.38f, 0.44f)
+        }
+
+        // === NORTH / EAST / WEST REALISTIC SEAT BLOCKS (alternating club-toned rows) ===
+        for (row in 0 until 9) {
+            val sy = 1.12f + row * 0.72f
+            val sz = -41.4f - row * 1.15f
+            val evenRow = (row and 1) == 0
+            for (blk in -4..3) {
+                val bx = (blk + 0.5f) * 13.5f
+                val clubBlock = blk < 0
+                val sr = if (clubBlock) (if (evenRow) 0.14f else 0.20f) else (if (evenRow) 0.52f else 0.40f)
+                val sg = if (clubBlock) (if (evenRow) 0.28f else 0.36f) else (if (evenRow) 0.16f else 0.14f)
+                val sb = if (clubBlock) (if (evenRow) 0.62f else 0.72f) else (if (evenRow) 0.20f else 0.18f)
+                v.addBox(bx, sy, sz, 11.4f, 0.32f, 0.52f, sr, sg, sb)
+            }
+        }
+        for (row in 0 until 6) {
+            val sy = 11.75f + row * 0.85f
+            val sz = -52.2f - row * 1.15f
+            val evenRow = (row and 1) == 0
+            for (blk in -4..3) {
+                val bx = (blk + 0.5f) * 13.5f
+                val sr = if (evenRow) 0.16f else 0.24f
+                val sg = if (evenRow) 0.30f else 0.40f
+                val sb = if (evenRow) 0.64f else 0.74f
+                v.addBox(bx, sy, sz, 11.4f, 0.32f, 0.52f, sr, sg, sb)
+            }
+        }
+        for (side in listOf(-1f, 1f)) {
+            for (row in 0 until 7) {
+                val sx = side * (63.4f + row * 1.15f)
+                val sy = 1.12f + row * 0.72f
+                val evenRow = (row and 1) == 0
+                for (blk in -2..1) {
+                    val bz = (blk + 0.5f) * 12f
+                    val isHome = side < 0f
+                    val sr = if (isHome) (if (evenRow) 0.15f else 0.22f) else (if (evenRow) 0.55f else 0.42f)
+                    val sg = if (isHome) (if (evenRow) 0.30f else 0.38f) else (if (evenRow) 0.18f else 0.14f)
+                    val sb = if (isHome) (if (evenRow) 0.64f else 0.75f) else (if (evenRow) 0.22f else 0.18f)
+                    v.addBox(sx, sy, bz, 0.52f, 0.32f, 9.8f, sr, sg, sb)
+                }
+            }
+        }
+
+        // === STAIRWAY AISLE HANDRAILS ===
+        for (aisle in -4..4) {
+            val ax = aisle * 13.5f
+            v.addBox(ax, 4.4f, -46.2f, 0.10f, 0.10f, 10.6f, 0.68f, 0.72f, 0.78f)
+            v.addBox(ax, 14.2f, -55.2f, 0.10f, 0.10f, 7.2f, 0.68f, 0.72f, 0.78f)
+            v.addBox(ax, 1.55f, -41.2f, 0.10f, 0.90f, 0.10f, 0.58f, 0.62f, 0.68f)
+            v.addBox(ax, 7.20f, -50.8f, 0.10f, 0.90f, 0.10f, 0.58f, 0.62f, 0.68f)
+        }
+        for (side in listOf(-1f, 1f)) {
+            for (aisle in -2..2) {
+                val az = aisle * 12f
+                v.addBox(side * 66.8f, 3.8f, az, 8.2f, 0.10f, 0.10f, 0.68f, 0.72f, 0.78f)
+                v.addBox(side * 63.2f, 1.45f, az, 0.10f, 0.85f, 0.10f, 0.58f, 0.62f, 0.68f)
+            }
+        }
+
+        // === ROOF STEEL TRUSS BRACING & FLOODLIGHT ROOF HOUSINGS ===
+        for (truss in -5..5) {
+            val tx = truss * 10.8f
+            v.addBox(tx, 20.1f, -52.5f, 0.32f, 0.48f, 16.5f, 0.36f, 0.40f, 0.46f)
+            v.addBox(tx + 5.4f, 20.1f, -52.5f, 0.18f, 0.24f, 15.8f, 0.42f, 0.46f, 0.52f)
+        }
+        v.addBox(0f, 20.0f, -46.5f, 118f, 0.34f, 0.34f, 0.40f, 0.44f, 0.50f)
+        v.addBox(0f, 20.0f, -57.5f, 118f, 0.34f, 0.34f, 0.40f, 0.44f, 0.50f)
+        for (side in listOf(-1f, 1f)) {
+            for (truss in -3..3) {
+                val tz = truss * 10.5f
+                v.addBox(side * 73.5f, 14.0f, tz, 13.5f, 0.38f, 0.28f, 0.36f, 0.40f, 0.46f)
+            }
+            v.addBox(side * 67.5f, 13.9f, 0f, 0.30f, 0.30f, 68f, 0.40f, 0.44f, 0.50f)
+        }
+        val floodCorners = arrayOf(
+            floatArrayOf(-66f, -47f), floatArrayOf(66f, -47f),
+            floatArrayOf(-66f, 47f), floatArrayOf(66f, 47f)
+        )
+        for (fc in floodCorners) {
+            v.addBox(fc[0], 27.6f, fc[1], 6.4f, 0.45f, 3.2f, 0.24f, 0.28f, 0.34f)
+            v.addBox(fc[0], 26.2f, fc[1], 5.8f, 2.4f, 1.4f, 0.30f, 0.34f, 0.40f)
+            v.addBox(fc[0], 26.2f, fc[1] + (if (fc[1] < 0f) 0.78f else -0.78f), 5.2f, 1.9f, 0.22f, 0.96f, 0.98f, 1.0f)
+        }
         v.addBox(0f, 0.55f, 38.8f, 118f, 1.1f, 0.45f, 0.18f, 0.22f, 0.28f)
 
         return GlMesh(v.toFloatArray())
@@ -174,6 +269,20 @@ object StadiumBuilder {
             floatArrayOf(0.14f, 0.26f, 0.42f)
         )
 
+        val hairPalette = arrayOf(
+            floatArrayOf(0.10f, 0.08f, 0.07f),
+            floatArrayOf(0.24f, 0.16f, 0.10f),
+            floatArrayOf(0.45f, 0.30f, 0.16f),
+            floatArrayOf(0.72f, 0.58f, 0.32f),
+            floatArrayOf(0.55f, 0.55f, 0.58f)
+        )
+        val jacketPalette = arrayOf(
+            floatArrayOf(0.12f, 0.14f, 0.18f),
+            floatArrayOf(0.28f, 0.14f, 0.16f),
+            floatArrayOf(0.14f, 0.24f, 0.18f),
+            floatArrayOf(0.36f, 0.34f, 0.30f),
+            floatArrayOf(0.18f, 0.24f, 0.36f)
+        )
         fun addSpectatorBox(
             cx: Float, cy: Float, cz: Float,
             sx: Float, sy: Float, sz: Float,
@@ -219,14 +328,23 @@ object StadiumBuilder {
         }
 
         fun addSpectator(x: Float, y: Float, z: Float, teamRgb: FloatArray) {
-            val shirt = pickFanShirt(teamRgb)
+            val useJacket = rng.nextFloat() < 0.28f
+            val shirt = if (useJacket) jacketPalette[rng.nextInt(jacketPalette.size)] else pickFanShirt(teamRgb)
             val skin = skinPalette[rng.nextInt(skinPalette.size)]
-            val phase = rng.nextFloat() * (2.0 * PI).toFloat()
+            val hair = hairPalette[rng.nextInt(hairPalette.size)]
+            val twoPi = (2.0 * PI).toFloat()
+            val rawPhase = (x * 0.08f + z * 0.06f) + rng.nextFloat() * 1.85f
+            val phase = ((rawPhase % twoPi) + twoPi) % twoPi
             val hScale = 0.88f + rng.nextFloat() * 0.24f
             // Torso
             addSpectatorBox(x, y + 0.42f * hScale, z, 0.54f, 0.72f * hScale, 0.36f, shirt[0], shirt[1], shirt[2], phase)
-            // Head
+            // Scarf
+            if (rng.nextFloat() < 0.42f) {
+                addSpectatorBox(x, y + 0.77f * hScale, z + 0.02f, 0.44f, 0.12f, 0.34f, teamRgb[0], teamRgb[1], teamRgb[2], phase)
+            }
+            // Head & Hair
             addSpectatorBox(x, y + 0.94f * hScale, z, 0.28f, 0.30f * hScale, 0.28f, skin[0], skin[1], skin[2], phase)
+            addSpectatorBox(x, y + 1.07f * hScale, z, 0.30f, 0.11f * hScale, 0.30f, hair[0], hair[1], hair[2], phase)
         }
 
         // North Lower Tier (9 rows x ~64 seats, skipping stairways)

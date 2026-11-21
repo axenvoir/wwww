@@ -8,11 +8,15 @@ in vec3 vWorldPos;
 
 uniform vec3 uGrassTint;
 uniform vec3 uSunColor;
-uniform vec3 uAmbient;
+uniform float uAmbient;
 uniform float uFloodlight;
 uniform vec3 uSkyColor;
 uniform vec3 uCameraPos;
 uniform float uHighDetail;
+uniform mat4 uLightSpaceMatrix;
+uniform sampler2D uShadowMap;
+uniform float uShadowsEnabled;
+uniform vec2 uShadowTexelSize;
 
 out vec4 fragColor;
 
@@ -68,6 +72,26 @@ float e = 0.14;
 return clamp((x * (a * x + b)) / (x * (c * x + d) + e), 0.0, 1.0);
 }
 
+float samplePcfShadow(vec3 worldPos, vec3 N, vec3 L) {
+    if (uShadowsEnabled < 0.5) return 1.0;
+    vec4 lightClip = uLightSpaceMatrix * vec4(worldPos, 1.0);
+    vec3 proj = lightClip.xyz / max(lightClip.w, 0.0001);
+    proj = proj * 0.5 + 0.5;
+    if (proj.x < 0.0 || proj.x > 1.0 || proj.y < 0.0 || proj.y > 1.0 || proj.z > 1.0) {
+        return 1.0;
+    }
+    float bias = max(0.0022 * (1.0 - max(dot(N, L), 0.0)), 0.0007);
+    float currentDepth = proj.z - bias;
+    vec2 texel = max(uShadowTexelSize, vec2(1.0 / 1024.0));
+    float shadow = 0.0;
+    for (int x = -1; x <= 1; x++) {
+        for (int y = -1; y <= 1; y++) {
+            float pcfDepth = texture(uShadowMap, proj.xy + vec2(float(x), float(y)) * texel).r;
+            shadow += (currentDepth > pcfDepth) ? 0.0 : 1.0;
+        }
+    }
+    return shadow / 9.0;
+}
 void main() {
 vec2 p = vWorldPos.xz;
 float halfLen = 52.5;
@@ -97,7 +121,7 @@ float wearMask = clamp((wearLeft + wearRight) * 0.65, 0.0, 1.0) * (onField ? 1.0
 vec3 soilColor = vec3(0.32, 0.25, 0.16);
 turfColor = mix(turfColor, soilColor, wearMask * 0.55);
 
-float lw = 0.12;
+float aa = max(length(fwidth(p)) * 0.75, 0.015); float lw = 0.12;
 float lineMask = 0.0;
 if (abs(p.x) <= halfLen + lw && abs(p.y) <= halfWid + lw) {
 if (abs(abs(p.x) - halfLen) < lw || abs(abs(p.y) - halfWid) < lw) lineMask = 1.0;
@@ -113,6 +137,14 @@ if (ax >= halfLen - 5.5 && ax <= halfLen && az <= 9.16) {
 if (abs(ax - (halfLen - 5.5)) < lw || abs(az - 9.16) < lw) lineMask = 1.0;
 }
 }
+                float penSpotL = length(p - vec2(-41.5, 0.0));
+                float penSpotR = length(p - vec2(41.5, 0.0));
+                lineMask = max(lineMask, 1.0 - smoothstep(0.14 - aa, 0.14 + aa, min(penSpotL, penSpotR)));
+                vec2 cornerVec = vec2(halfLen - ax, halfWid - az);
+                float cornerArc = abs(length(cornerVec) - 1.0);
+                if (cornerVec.x >= 0.0 && cornerVec.y >= 0.0) {
+                    lineMask = max(lineMask, 1.0 - smoothstep(lw - aa, lw + aa, cornerArc));
+                }
 vec3 albedo = mix(turfColor, vec3(0.95, 0.96, 0.94), lineMask);
 
 vec3 T = normalize(vec3(stripeDir, 0.0, 0.15 * stripeDir));
@@ -135,7 +167,7 @@ float Gsun = geometrySmith(N, V, sunL, roughness);
 vec3 Fsun = fresnelSchlick(max(dot(sunH, V), 0.0), F0);
 vec3 specSun = (Dsun * Gsun * Fsun) / max(4.0 * NdotV * sunNdotL, 0.001);
 vec3 kDsun = vec3(1.0) - Fsun;
-Lo += (kDsun * albedo / PI + specSun * 0.35) * uSunColor * sunNdotL;
+float shadowFactor = samplePcfShadow(vWorldPos, N, sunL); Lo += (kDsun * albedo / PI + specSun * 0.35) * uSunColor * sunNdotL * shadowFactor;
 
 vec3 floodPos[4];
 floodPos[0] = vec3(-58.0, 34.0, -40.0);
@@ -162,7 +194,7 @@ Lo += (kD * albedo / PI + spec * 0.45) * floodCol * NdotL;
 
 float wetFresnel = pow(1.0 - NdotV, 4.0) * (1.0 - wearMask) * (1.0 - lineMask);
 vec3 sheen = uSkyColor * wetFresnel * 0.28;
-vec3 ambient = uAmbient * albedo * 1.15;
+vec3 ambient = vec3(uAmbient) * albedo * 1.15;
 vec3 color = ambient + Lo + sheen;
 
 float camDist = length(uCameraPos - vWorldPos);
@@ -191,7 +223,7 @@ uniform vec3 uGloveColor;
 uniform float uIsGoalkeeper;
 uniform vec3 uSunDir;
 uniform vec3 uSunColor;
-uniform vec3 uAmbient;
+uniform float uAmbient;
 uniform float uFloodlight;
 uniform vec3 uCameraPos;
 uniform vec3 uSkyColor;
@@ -316,7 +348,7 @@ Lo += (kD * albedo / PI + spec * specScale) * floodCol * NdotL;
 float rim = pow(1.0 - NdotV, 3.2);
 vec3 rimLight = mix(uSkyColor, vec3(0.95, 0.98, 1.0), 0.55) * rim * (0.48 + 0.25 * uFloodlight);
 vec3 velvetSheen = albedo * pow(1.0 - NdotV, 4.0) * sheenWeight * 0.65;
-vec3 ambient = uAmbient * albedo * 1.1;
+vec3 ambient = vec3(uAmbient) * albedo * 1.1;
 
 vec3 color = ambient + Lo + rimLight + velvetSheen;
 color = acesToneMap(color);
