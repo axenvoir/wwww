@@ -156,6 +156,7 @@ class MatchdayViewModel(application: Application) : AndroidViewModel(application
             lanManager.refreshLocalAddresses()
         }
         _screen.value = target
+        if (target == AppScreen.ACTIVE_MATCH) audioEngine.startStadiumAmbience() else audioEngine.stopStadiumAmbience()
     }
 
     fun openHostLobby() {
@@ -243,6 +244,7 @@ class MatchdayViewModel(application: Application) : AndroidViewModel(application
     fun updateSoundEnabled(enabled: Boolean) {
         audioEngine.isEnabled = enabled
         viewModelScope.launch { settingsRepo.updateSoundEnabled(enabled) }
+        if (!enabled) audioEngine.stopStadiumAmbience() else if (enabled && _screen.value == AppScreen.ACTIVE_MATCH) audioEngine.startStadiumAmbience()
     }
 
     fun updateShowPerfHud(show: Boolean) {
@@ -280,6 +282,7 @@ class MatchdayViewModel(application: Application) : AndroidViewModel(application
             )
         }
         _screen.value = AppScreen.ACTIVE_MATCH
+        audioEngine.startStadiumAmbience()
     }
 
     fun togglePause(paused: Boolean) {
@@ -439,6 +442,7 @@ class MatchdayViewModel(application: Application) : AndroidViewModel(application
     override fun onCleared() {
         super.onCleared()
         lanManager.stopAll()
+        audioEngine.stopStadiumAmbience()
         audioEngine.release()
     }
 }
