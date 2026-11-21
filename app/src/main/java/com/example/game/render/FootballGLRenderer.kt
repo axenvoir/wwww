@@ -46,7 +46,7 @@ class FootballGLRenderer(
         val floodlight: Int,
         val skyColor: Int,
         val cameraPos: Int,
-        val highDetail: Int
+        val highDetail: Int, val shadowsEnabled: Int, val lightSpaceMatrix: Int, val shadowTexelSize: Int, val shadowMap: Int
     )
 
     private data class SkinnedPbrLocations(
@@ -84,7 +84,7 @@ class FootballGLRenderer(
     private var surfaceHeightPx = 1
     
 private val fallbackController = GraphicsFallbackController()
-private val postProcessPass = PostProcessPass()
+private val postProcessPass = PostProcessPass(); private val shadowMapPass = ShadowMapPass(); private var shadowMapActiveThisFrame = false
     private var pitchPbrProgram = 0
 private var skinnedPbrProgram = 0
     private var ballPbrProgram = 0 
@@ -237,7 +237,7 @@ private var activePipelineMode = GraphicsPipelineMode.CLASSIC
 
     override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
         GLES30.glEnable(GLES30.GL_DEPTH_TEST)
-        postProcessPass.init()
+        postProcessPass.init(); shadowMapPass.init()
         GLES30.glEnable(GLES30.GL_BLEND)
         GLES30.glBlendFunc(GLES30.GL_SRC_ALPHA, GLES30.GL_ONE_MINUS_SRC_ALPHA)
         GLES30.glEnable(GLES30.GL_CULL_FACE)
@@ -344,7 +344,11 @@ private var activePipelineMode = GraphicsPipelineMode.CLASSIC
                 floodlight = GLES30.glGetUniformLocation(pitchPbrProgram, "uFloodlight"),
                 skyColor = GLES30.glGetUniformLocation(pitchPbrProgram, "uSkyColor"),
                 cameraPos = GLES30.glGetUniformLocation(pitchPbrProgram, "uCameraPos"),
-                highDetail = GLES30.glGetUniformLocation(pitchPbrProgram, "uHighDetail")
+                highDetail = GLES30.glGetUniformLocation(pitchPbrProgram, "uHighDetail"),
+                shadowsEnabled = GLES30.glGetUniformLocation(pitchPbrProgram, "uShadowsEnabled"),
+                lightSpaceMatrix = GLES30.glGetUniformLocation(pitchPbrProgram, "uLightSpaceMatrix"),
+                shadowTexelSize = GLES30.glGetUniformLocation(pitchPbrProgram, "uShadowTexelSize"),
+                                shadowMap = GLES30.glGetUniformLocation(pitchPbrProgram, "uShadowMap")
             )
         }
 
@@ -466,7 +470,7 @@ val pbrNow = System.nanoTime()
         ensureTeamAssetsLoaded(snap.config.homeTeam, snap.config.awayTeam)
 
         GLES30.glClearColor(stadium.skyR, stadium.skyG, stadium.skyB, 1.0f)
-        val usePostFx = activePipelineMode == GraphicsPipelineMode.REALISTIC_PBR && quality == GraphicsQuality.HIGH && postProcessPass.beginSceneCapture()
+        shadowMapActiveThisFrame = if (activePipelineMode == GraphicsPipelineMode.REALISTIC_PBR && quality.renderShadows) renderShadowPass(snap, stadium, quality) else false; val usePostFx = activePipelineMode == GraphicsPipelineMode.REALISTIC_PBR && quality == GraphicsQuality.HIGH && postProcessPass.beginSceneCapture()
         GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT or GLES30.GL_DEPTH_BUFFER_BIT)
 
         updateBroadcastCamera(snap, dt)
@@ -596,7 +600,7 @@ val pbrNow = System.nanoTime()
         return t * t * (3f - 2f * t)
     }
 
-    private fun drawPitch(stadium: StadiumPreset, quality: GraphicsQuality) {
+    private fun renderShadowPass(snap: RenderWorldSnapshot, stadium: StadiumPreset, quality: GraphicsQuality): Boolean { if (!shadowMapPass.beginShadowPass(stadium, quality)) return false; shadowMapPass.bindSkinnedCasterProgram(); for (p in snap.players) { val anim = animators[p.id.coerceIn(0, animators.lastIndex)]; val heightScale = when (p.role) { PlayerRole.GK -> 1.05f; PlayerRole.DF -> 1.02f + (p.shirtNumber % 3) * 0.012f; PlayerRole.MF -> 0.98f + (p.shirtNumber % 3) * 0.015f; PlayerRole.FW -> 0.99f + (p.shirtNumber % 3) * 0.015f }; val widthScale = when (p.role) { PlayerRole.GK, PlayerRole.DF -> 1.03f; else -> 0.98f + (p.id % 3) * 0.02f }; val yawDeg = (-p.facingYaw * (180f / PI.toFloat())) + 90f; Matrix.setIdentityM(modelMatrix, 0); Matrix.translateM(modelMatrix, 0, p.x, p.y, p.z); Matrix.rotateM(modelMatrix, 0, yawDeg, 0f, 1f, 0f); Matrix.scaleM(modelMatrix, 0, widthScale, heightScale, widthScale); shadowMapPass.uploadSkinnedCaster(modelMatrix, anim.skinMatrices); playerMeshLow.draw() }; shadowMapPass.bindStaticCasterProgram(); Matrix.setIdentityM(modelMatrix, 0); Matrix.translateM(modelMatrix, 0, snap.ballX, snap.ballY, snap.ballZ); val r = PitchConstants.BALL_RADIUS * 1.08f; Matrix.scaleM(modelMatrix, 0, r, r, r); shadowMapPass.uploadStaticModel(modelMatrix); ballMeshLow.draw(); val hw = PitchConstants.GOAL_HALF_WIDTH; val gh = PitchConstants.GOAL_HEIGHT; val postR = 0.068f; for (goalLineX in floatArrayOf(-PitchConstants.HALF_LENGTH, PitchConstants.HALF_LENGTH)) { Matrix.setIdentityM(modelMatrix, 0); Matrix.translateM(modelMatrix, 0, goalLineX, gh * 0.5f, -hw); Matrix.scaleM(modelMatrix, 0, postR, gh, postR); shadowMapPass.uploadStaticModel(modelMatrix); cylinderMesh.draw(); Matrix.setIdentityM(modelMatrix, 0); Matrix.translateM(modelMatrix, 0, goalLineX, gh * 0.5f, hw); Matrix.scaleM(modelMatrix, 0, postR, gh, postR); shadowMapPass.uploadStaticModel(modelMatrix); cylinderMesh.draw(); Matrix.setIdentityM(modelMatrix, 0); Matrix.translateM(modelMatrix, 0, goalLineX, gh, 0f); Matrix.rotateM(modelMatrix, 0, 90f, 1f, 0f, 0f); Matrix.scaleM(modelMatrix, 0, postR, hw * 2f + postR * 2f, postR); shadowMapPass.uploadStaticModel(modelMatrix); cylinderMesh.draw() }; shadowMapPass.endShadowPass(surfaceWidthPx, surfaceHeightPx); return true }; private fun drawPitch(stadium: StadiumPreset, quality: GraphicsQuality) {
         val usePbr = activePipelineMode == GraphicsPipelineMode.REALISTIC_PBR && pitchPbrProgram != 0
         val prog = if (usePbr) pitchPbrProgram else pitchProgram
         val pbr = if (usePbr) pitchPbrLocations else null
@@ -611,7 +615,7 @@ val pbrNow = System.nanoTime()
         GLES30.glUniform3f(pbr?.skyColor ?: uPitchSky, stadium.skyR, stadium.skyG, stadium.skyB)
         GLES30.glUniform3f(pbr?.cameraPos ?: uPitchCamPos, camPosX, camPosY, camPosZ)
         GLES30.glUniform1f(pbr?.highDetail ?: uPitchHighDetail, if (quality != GraphicsQuality.LOW) 1f else 0f)
-        pitchMesh.draw()
+        val shadowsOn = usePbr && shadowMapActiveThisFrame && shadowMapPass.isReady; if (pbr != null) { GLES30.glUniform1f(pbr.shadowsEnabled, if (shadowsOn) 1f else 0f); GLES30.glUniformMatrix4fv(pbr.lightSpaceMatrix, 1, false, shadowMapPass.lightSpaceMatrix, 0); val texel = 1f / shadowMapPass.mapSize.coerceAtLeast(1); GLES30.glUniform2f(pbr.shadowTexelSize, texel, texel); if (shadowsOn) { GLES30.glActiveTexture(GLES30.GL_TEXTURE1); GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, shadowMapPass.shadowTextureId); GLES30.glUniform1i(pbr.shadowMap, 1) } }; pitchMesh.draw(); if (shadowsOn) GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
     }
 
     private fun prepareEntityShader(stadium: StadiumPreset) {
